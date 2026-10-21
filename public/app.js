@@ -74,6 +74,18 @@ let lastPreview = null;
 let currentJob = null;
 let es = null;
 
+/**
+ * Path rules come from the server so the browser never has to guess which OS
+ * produced a `rel` value. Defaults match the original Windows-only behaviour.
+ */
+const pathSeparator = () => status?.pathSeparator ?? "\\";
+const pathOptions = () => ({
+  sep: pathSeparator(),
+  caseInsensitive: status?.caseInsensitive ?? true,
+});
+const foldPath = (s) => (status?.caseInsensitive ?? true) ? s.toLowerCase() : s;
+const relBasename = (rel) => rel.split(pathSeparator()).pop();
+
 // ── boot ───────────────────────────────────
 async function boot() {
   try {
@@ -205,9 +217,9 @@ function renderTree(r) {
   const box = $("tree");
   box.innerHTML = "";
   // Drop exclusions that no longer exist under the new root.
-  const existing = new Set(collectRels(tree).map((x) => x.toLowerCase()));
-  excluded = new Set([...excluded].filter((e) => existing.has(e.toLowerCase())));
-  included = new Set([...included].filter((e) => existing.has(e.toLowerCase())));
+  const existing = new Set(collectRels(tree).map(foldPath));
+  excluded = new Set([...excluded].filter((e) => existing.has(foldPath(e))));
+  included = new Set([...included].filter((e) => existing.has(foldPath(e))));
 
   for (const child of tree.children) box.appendChild(nodeEl(child));
 
@@ -233,7 +245,7 @@ function refreshTree() {
  */
 function setExcluded(rel, on) {
   if (!tree) return;
-  const r = toggleFolder(tree, excluded, rel, on, included);
+  const r = toggleFolder(tree, excluded, rel, on, included, pathOptions());
   excluded = r.excluded;
   included = r.included;
   // Auto-expand so you can see what you just changed.
@@ -244,10 +256,11 @@ function setExcluded(rel, on) {
 
 /** @param {any} node */
 function nodeEl(node) {
-  const ex = excludedLower(excluded);
-  const inc = excludedLower(included);
-  const fully = isFullyExcluded(node.rel, ex, inc);
-  const partial = !fully && hasExcludedDescendant(node, ex, inc);
+  const opts = pathOptions();
+  const ex = excludedLower(excluded, opts.caseInsensitive);
+  const inc = excludedLower(included, opts.caseInsensitive);
+  const fully = isFullyExcluded(node.rel, ex, inc, opts);
+  const partial = !fully && hasExcludedDescendant(node, ex, inc, opts);
 
   const wrap = document.createElement("div");
   const kids = document.createElement("div");
@@ -518,7 +531,7 @@ $("btnDupe").onclick = async () => {
       `wasting <b>${fmt(d.duplicateBytes)}</b> if all converted.</p>` +
       `<table><tr><th>File</th><th>Copies</th><th>Each</th></tr>` +
       d.groups.slice(0, 8).map((g) =>
-        `<tr><td>${esc(g.members[0].rel.split("\\").pop())}</td>` +
+        `<tr><td>${esc(relBasename(g.members[0].rel))}</td>` +
         `<td>${g.members.length}</td><td>${fmt(g.size)}</td></tr>`).join("") +
       `</table>`;
   } catch (/** @type {any} */ err) {
@@ -540,7 +553,7 @@ $("btnDates").onclick = async () => {
       `<tr><td class="k">undated</td><td class="${d.undated.length ? "warn" : "ok"}">${d.undated.length.toLocaleString()}</td></tr>` +
       `</table>` +
       (d.undated.length
-        ? `<p class="muted">e.g. ${d.undated.slice(0, 3).map((u) => esc(u.split("\\").pop())).join(", ")}</p>`
+        ? `<p class="muted">e.g. ${d.undated.slice(0, 3).map((u) => esc(relBasename(u))).join(", ")}</p>`
         : "");
   } catch (/** @type {any} */ err) {
     box.innerHTML = `<h4>Dates</h4><p class="bad">${esc(err.message)}</p>`;
@@ -556,7 +569,9 @@ $("btnCompare").onclick = async () => {
   // Offer a spread of files so the comparison is not all one folder's look.
   const flat = [];
   (function walk(n) { flat.push(...n.files); for (const c of n.children) walk(c); })(tree);
-  const pick = flat.filter((f) => excluded.size === 0 || ![...excluded].some((e) => f.rel.startsWith(e + "\\")));
+  const sep = pathSeparator();
+  const pick = flat.filter((f) => excluded.size === 0 ||
+    ![...excluded].some((e) => f.rel.startsWith(e + sep)));
   if (!pick.length) { box.innerHTML = "<h4>Compare</h4><p>No files to compare.</p>"; return; }
   const step = Math.max(1, Math.floor(pick.length / 6));
   const samples = pick.filter((_, i) => i % step === 0).slice(0, 6);
@@ -962,7 +977,7 @@ $("btnSync").onclick = async () => {
     }
     if (s.changed?.length) {
       html += `<p class="muted" style="margin-top:8px">changed: ` +
-        s.changed.slice(0, 4).map((c) => esc(c.rel.split("\\").pop())).join(", ") +
+        s.changed.slice(0, 4).map((c) => esc(relBasename(c.rel))).join(", ") +
         `</p>`;
     }
 

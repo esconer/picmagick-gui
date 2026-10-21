@@ -29,6 +29,7 @@ import { Job, getJob, liveJob, pausedJob, newJob, manifestsFor, undoManifest } f
 import { analyseSync, pendingOnly, type SyncReport } from "./sync.ts";
 import { formatBytes } from "./convert.ts";
 import { checkForUpdate, installLatest, installProgress } from "./imagemagick.ts";
+import { CASE_INSENSITIVE, pathKey, REL_SEP } from "./platform.ts";
 
 const HERE = import.meta.dir;
 const PUBLIC = path.resolve(HERE, "..", "public");
@@ -151,6 +152,9 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
     return json({
       sourceRoot: state.sourceRoot,
       destination: state.destination,
+      /** Browser-side path logic follows the server's platform, not its own. */
+      pathSeparator: REL_SEP,
+      caseInsensitive: CASE_INSENSITIVE,
       budgetBytes: state.budgetBytes,
       ratio: state.ratio,
       policy: state.policy,
@@ -748,7 +752,7 @@ function projectList(): string[] {
     return readdirSync(base, { withFileTypes: true })
       .filter((d: any) => d.isDirectory() && !/^(\$|System)/i.test(d.name))
       .map((d: any) => path.join(base, d.name))
-      .filter((p: string) => path.resolve(p).toLowerCase() !== path.resolve(state.sourceRoot).toLowerCase())
+      .filter((p: string) => pathKey(path.resolve(p)) !== pathKey(path.resolve(state.sourceRoot)))
       .slice(0, 40);
   } catch {
     return [];
@@ -812,7 +816,7 @@ async function serveStatic(pathname: string): Promise<Response> {
 
   const rel = pathname.replace(/^\/+/, "");
   const file = path.resolve(PUBLIC, rel);
-  if (!file.toLowerCase().startsWith(publicRoot().toLowerCase())) {
+  if (!pathKey(file).startsWith(pathKey(publicRoot()))) {
     return new Response("forbidden", { status: 403 });
   }
   try {

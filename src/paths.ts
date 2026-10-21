@@ -1,11 +1,12 @@
 /**
- * Locating magick.exe, probing its capabilities, and enforcing the safety
+ * Locating ImageMagick, probing its capabilities, and enforcing the safety
  * invariants that keep this tool from ever touching the originals.
  */
 import { existsSync, readFileSync, readdirSync, type Dirent } from "node:fs";
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { MAGICK_BIN, pathKey } from "./platform.ts";
 import { compareVersions } from "./version.ts";
 
 export const CONVERT_EXTS = [
@@ -65,12 +66,12 @@ function projectMagickCandidates(): string[] {
   if (pointer) {
     const dir = path.resolve(root, pointer.replace(/^["']|["']$/g, ""));
     // current.txt is app-written, but never let it point outside the folder.
-    if (dir.toLowerCase().startsWith(root.toLowerCase() + path.sep)) {
-      out.push(path.join(dir, "magick.exe"));
+    if (pathKey(dir).startsWith(pathKey(root) + path.sep)) {
+      out.push(path.join(dir, MAGICK_BIN));
     }
   }
 
-  out.push(path.join(root, "magick.exe"));
+  out.push(path.join(root, MAGICK_BIN));
 
   let entries: Dirent[];
   try {
@@ -80,8 +81,8 @@ function projectMagickCandidates(): string[] {
   }
 
   const nested = entries
-    .filter((e) => e.isDirectory() && existsSync(path.join(root, e.name, "magick.exe")))
-    .map((e) => path.join(root, e.name, "magick.exe"))
+    .filter((e) => e.isDirectory() && existsSync(path.join(root, e.name, MAGICK_BIN)))
+    .map((e) => path.join(root, e.name, MAGICK_BIN))
     .sort((a, b) => {
       const an = path.basename(path.dirname(a));
       const bn = path.basename(path.dirname(b));
@@ -101,9 +102,9 @@ function candidateMagickPaths(): string[] {
 
   // 2. A copy dropped beside this project (the original layout).
   for (const rel of [
-    "../ImageMagick-7.1.2-33-portable-Q16-x64/magick.exe",
-    "../magick.exe",
-    "./magick.exe",
+    `../ImageMagick-7.1.2-33-portable-Q16-x64/${MAGICK_BIN}`,
+    `../${MAGICK_BIN}`,
+    `./${MAGICK_BIN}`,
   ]) {
     out.push(path.resolve(here, rel));
   }
@@ -115,18 +116,18 @@ function candidateMagickPaths(): string[] {
     dir = parent;
     for (const name of readdirSafe(dir)) {
       if (/^ImageMagick.*portable.*x64$/i.test(name)) {
-        out.push(path.join(dir, name, "magick.exe"));
+        out.push(path.join(dir, name, MAGICK_BIN));
       }
     }
   }
   // 4. Standard install locations.
   const pf = process.env["ProgramFiles"];
   const pfx = process.env["ProgramFiles(x86)"];
-  if (pf) out.push(path.join(pf, "ImageMagick-7.1.2-Q16-HDRI", "magick.exe"));
-  if (pf) out.push(path.join(pf, "ImageMagick-7.1.2-Q16", "magick.exe"));
-  if (pfx) out.push(path.join(pfx, "ImageMagick-7.1.2-Q16-HDRI", "magick.exe"));
+  if (pf) out.push(path.join(pf, "ImageMagick-7.1.2-Q16-HDRI", MAGICK_BIN));
+  if (pf) out.push(path.join(pf, "ImageMagick-7.1.2-Q16", MAGICK_BIN));
+  if (pfx) out.push(path.join(pfx, "ImageMagick-7.1.2-Q16-HDRI", MAGICK_BIN));
   // 5. Whatever is on PATH.
-  out.push("magick.exe");
+  out.push(MAGICK_BIN);
   out.push("magick");
 
   return [...new Set(out)];
@@ -187,7 +188,7 @@ export function findMagick(): MagickInfo {
   }
 
   throw new Error(
-    "Could not find magick.exe.\n\n" +
+    `Could not find ${MAGICK_BIN}.\n\n` +
       `Put a portable ImageMagick folder in ${LOCAL_MAGICK_ROOT},\n` +
       "or use the Health panel to download one. A normal install also works.\n" +
       "Looked in:\n  " + tried.join("\n  "),
@@ -199,8 +200,8 @@ export function findMagick(): MagickInfo {
  * or the mirror would recurse into its own output forever.
  */
 export function assertDestinationSafe(source: string, destination: string): void {
-  const src = path.resolve(source).toLowerCase();
-  const dst = path.resolve(destination).toLowerCase();
+  const src = pathKey(path.resolve(source));
+  const dst = pathKey(path.resolve(destination));
 
   if (!path.isAbsolute(dst)) {
     throw new Error(`Destination must be an absolute path, got: ${destination}`);

@@ -14,7 +14,7 @@
     "start": "bun run src/server.ts",
     "start:open": "bun run src/server.ts --open",
     "typecheck": "bunx tsc -p tsconfig.json",
-    "check": "bun run typecheck && bun run src/client.check.ts"
+    "check": "bun run typecheck && bun run src/client.check.ts && bun run src/platform.check.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
