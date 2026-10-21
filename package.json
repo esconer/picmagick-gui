@@ -1,0 +1,23 @@
+{
+  "name": "picmagick-gui",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Local Windows GUI for converting a photo library to AVIF with include/exclude control, budget estimates, verification and safe undo",
+  "license": "MIT",
+  "author": "picmagick-gui contributors",
+  "engines": {
+    "bun": ">=1.1.0"
+  },
+  "scripts": {
+    "dev": "bun run --hot src/server.ts",
+    "start": "bun run src/server.ts",
+    "start:open": "bun run src/server.ts --open",
+    "typecheck": "bunx tsc -p tsconfig.json",
+    "check": "bun run typecheck && bun run src/client.check.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^26.6.5"
+  }
+}

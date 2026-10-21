@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>picmagick-gui</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">
+    <span class="dot"></span>
+    <strong>picmagick-gui</strong>
+    <span class="muted" id="magickLine">checking ImageMagick…</span>
+  </div>
+  <div class="bar-actions">
+    <button id="imUpdate" class="update-pill hidden" title="ImageMagick update"></button>
+    <span id="redundancy" class="pill warn hidden"></span>
+    <button id="btnHealth" class="ghost">Health</button>
+    <button id="btnQuit" class="ghost" title="Stop the picmagick-gui server">Quit</button>
+  </div>
+</header>
+
+<main>
+  <!-- ─────────────── left: source + folders ─────────────── -->
+  <section class="pane pane-folders">
+    <div class="pane-head">
+      <h2>Folders</h2>
+      <div class="pane-head-actions">
+        <button id="btnAll" class="link">all</button>
+        <button id="btnNone" class="link">none</button>
+      </div>
+    </div>
+
+    <div class="source-bar">
+      <label for="sourceRoot">Source folder</label>
+      <div class="source-row">
+        <input id="sourceRoot" type="text" spellcheck="false" placeholder="D:\Photos">
+        <button id="btnPickSource" class="ghost" title="Browse…">…</button>
+      </div>
+      <div class="source-actions">
+        <button id="btnScan" class="primary">Scan</button>
+        <span id="sourceInfo" class="muted"></span>
+      </div>
+      <p id="sourceError" class="bad hidden"></p>
+    </div>
+
+    <div id="tree" class="tree">
+      <p class="empty">Pick a folder above, then press <b>Scan</b>.</p>
+    </div>
+    <div class="pane-foot">
+      <span id="scanSummary" class="muted">not scanned</span>
+    </div>
+  </section>
+
+  <!-- ─────────────── middle: settings ─────────────── -->
+  <section class="pane pane-settings">
+    <div class="pane-head"><h2>Settings</h2></div>
+    <div class="settings-scroll">
+
+      <div class="field">
+        <label>Quality <span class="hint">AVIF q</span></label>
+        <div class="row">
+          <input id="quality" type="range" min="20" max="90" step="5" value="60">
+          <output id="qualityOut">60</output>
+        </div>
+        <p class="note">q60 is the archive setting from your original notes.</p>
+      </div>
+
+      <div class="field">
+        <label>Skip files smaller than <span class="hint">under-size files</span></label>
+        <div class="row">
+          <input id="minsize" type="range" min="0" max="5" step="0.05" value="1">
+          <output id="minsizeOut">1.00 MB</output>
+        </div>
+        <label class="check">
+          <input id="copyUndersized" type="checkbox" checked>
+          <span>Copy under-size files instead of dropping them</span>
+        </label>
+        <p class="note">Skipping saves time, not space — copied files keep their
+          original bytes. Raise it to cut hours, at the cost of output size.</p>
+      </div>
+
+      <div class="field">
+        <label>Source types</label>
+        <div id="extToggles" class="ext-grid"></div>
+      </div>
+
+      <div class="field">
+        <label class="check">
+          <input id="includeRaw" type="checkbox">
+          <span>Include RAW (<b id="rawBytes"></b> in 77 files)</span>
+        </label>
+        <label class="check">
+          <input id="flattenGif" type="checkbox">
+          <span>Flatten animated GIF to first frame</span>
+        </label>
+      </div>
+
+      <div class="field">
+        <label>Output</label>
+        <div class="row">
+          <input id="destination" type="text" spellcheck="false">
+          <button id="btnPick" class="ghost">Browse…</button>
+        </div>
+        <p class="note" id="freeLine"></p>
+      </div>
+
+      <div class="field">
+        <label>Cloud budget <span class="hint">cap</span></label>
+        <div class="row">
+          <input id="budget" type="range" min="1" max="100" step="1" value="10">
+          <output id="budgetOut">10 GB</output>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Parallel jobs <span class="hint">CPU</span></label>
+        <div class="row">
+          <input id="jobs" type="range" min="1" max="16" step="1" value="9">
+          <output id="jobsOut">9</output>
+        </div>
+        <p class="note">Each job is pinned to one thread, so this is roughly your
+          CPU thread count. 9 of 12 ≈ 75%. Changes apply to a run in progress
+          on the next file.</p>
+      </div>
+
+      <div class="field">
+        <label>Encoder speed <span class="hint">aom AV1</span></label>
+        <div class="row">
+          <input id="heicSpeed" type="range" min="4" max="9" step="1" value="6">
+          <output id="heicSpeedOut">6</output>
+        </div>
+        <p class="note">Higher is faster and slightly larger. 10 is not offered:
+          it exits successfully but writes an empty file.</p>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ─────────────── right: plan + tools ─────────────── -->
+  <section class="pane pane-plan">
+    <div class="pane-head"><h2>Plan</h2></div>
+    <div class="plan-scroll">
+
+      <div class="stat-row">
+        <div class="stat">
+          <span class="stat-label">Convert</span>
+          <span class="stat-value" id="statConvert">–</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Copy</span>
+          <span class="stat-value" id="statCopy">–</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Skip</span>
+          <span class="stat-value" id="statSkip">–</span>
+        </div>
+      </div>
+
+      <div class="budget-card" id="budgetCard">
+        <div class="budget-main">
+          <span class="stat-label">Projected output</span>
+          <span class="stat-big" id="statOut">–</span>
+        </div>
+        <div class="budget-bar"><div id="budgetFill"></div></div>
+        <p class="note" id="budgetNote"></p>
+      </div>
+
+      <div class="tool-grid">
+        <button id="btnSync" class="ghost">Sync<br><small>what's new</small></button>
+        <button id="btnEstimate" class="ghost">Estimate<br><small>real sample</small></button>
+        <button id="btnDupe" class="ghost">Duplicates<br><small>hash scan</small></button>
+        <button id="btnDates" class="ghost">Dates<br><small>EXIF audit</small></button>
+        <button id="btnCompare" class="ghost">Compare q<br><small>visual</small></button>
+        <button id="btnManifests" class="ghost">Runs<br><small>undo</small></button>
+      </div>
+
+      <div id="syncBox" class="result hidden"></div>
+      <div id="estimateBox" class="result hidden"></div>
+      <div id="dupeBox" class="result hidden"></div>
+      <div id="datesBox" class="result hidden"></div>
+      <div id="compareBox" class="result hidden"></div>
+
+      <div class="folder-split" id="folderSplit"></div>
+
+      <div class="actions">
+        <label class="check small">
+          <input id="overwrite" type="checkbox">
+          <span>Overwrite existing outputs</span>
+        </label>
+        <label class="check small">
+          <input id="onlyNew" type="checkbox">
+          <span>Skip files already converted (incremental)</span>
+        </label>
+        <button id="btnStart" class="primary big" disabled>Start conversion</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ─────────────── run bar ─────────────── -->
+<section id="runbar" class="runbar hidden">
+  <div class="runbar-top">
+    <span id="runStatus">starting…</span>
+    <div class="runbar-meter"><div id="runFill"></div></div>
+    <span id="runPct" class="mono">0%</span>
+    <button id="btnPause" class="ghost small hidden">Pause</button>
+    <button id="btnCancel" class="ghost small">Cancel</button>
+  </div>
+  <div class="runbar-stats">
+    <span id="runCounts"></span>
+    <span id="runEta"></span>
+    <span id="runBytes"></span>
+    <span id="runFile" class="truncate"></span>
+  </div>
+  <div id="runPaused" class="run-paused hidden">
+    <span>Paused. Completed files are on disk and will not be converted again.</span>
+    <button id="btnResume" class="primary small">Resume</button>
+    <button id="btnDiscard" class="ghost small">Cancel instead</button>
+  </div>
+</section>
+
+<dialog id="modal">
+  <div class="modal-head">
+    <h3 id="modalTitle">Title</h3>
+    <button id="modalClose" class="ghost small">Close</button>
+  </div>
+  <div id="modalBody" class="modal-body"></div>
+</dialog>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="/app.js" type="module"></script>
+</body>
+</html>

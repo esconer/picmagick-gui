@@ -1,0 +1,42 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: TypeScript
+        run: bun run typecheck
+
+      - name: Browser script check
+        run: bun run src/client.check.ts
+
+      - name: Build source archive
+        shell: pwsh
+        run: |
+          $name = "picmagick-gui-${{ github.ref_name }}.zip"
+          git archive --format=zip --prefix=picmagick-gui/ -o $name HEAD
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: picmagick-gui-${{ github.ref_name }}.zip
+          generate_release_notes: true

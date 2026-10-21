@@ -1,0 +1,21 @@
+node_modules/
+imagemagick/
+*.log
+.server.err
+.server.log
+.env
+.env.*
+dist/
+coverage/
+.DS_Store
+Thumbs.db
+desktop.ini
+*.zip
+*.7z
+
+# Tests are kept local and are not part of the public repository.
+src/*.test.ts
+src/selftest.ts
+test/
+tests/
+test-results/

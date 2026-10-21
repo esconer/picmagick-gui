@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "lib": ["ESNext", "DOM"],
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "types": ["bun", "node"],
+    "strict": true,
+    "checkJs": false,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "allowJs": true,
+    "verbatimModuleSyntax": false
+  },
+  // The browser files are included so they still get parsed for syntax errors.
+  // They are not type-checked: turning checkJs on reports ~12 cascading
+  // complaints about untyped API payloads and hoisted function declarations in
+  // plain JS that has no real defect behind any of them. src/client.check.ts
+  // covers what matters there, and is stricter about missing identifiers.
+  "include": ["src/**/*.ts", "public/**/*.js"]
+}
