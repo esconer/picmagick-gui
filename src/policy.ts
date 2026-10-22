@@ -39,7 +39,7 @@ export const DEFAULT_POLICY: Policy = {
   excludedFolders: [],
   includedFolders: [],
   extEnabled: Object.fromEntries(CONVERT_EXTS.map((e) => [e, true])),
-  minSizeBytes: 1 * 1024 * 1024,
+  minSizeBytes: 0,
   copyUndersized: true,
   includeRaw: false,
   qualities: [60],

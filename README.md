@@ -167,8 +167,8 @@ and what is already done, so the second run is cheap instead of a full re-do.
 | Encoder speed | `heic:speed=6` | Much faster than 5 for a small size increase |
 | RAW | off | Toggle it on per-run if you want it |
 | Animated GIF | preserved | ImageMagick 7.1.2 + libheif ≥1.20 writes animated AVIF |
-| Min size | 1 MB | Under-size files are copied, not re-encoded |
-| Jobs | 9 | Each job is one thread, so ~75% of a 12-thread CPU |
+| Min size | 0 MB | Convert every file; raise it to copy or drop small files |
+| Jobs | 2 | Safe default for high-resolution images; raise it for ordinary photos |
 
 The exact command the converter runs:
 
@@ -211,16 +211,16 @@ the whole subtree back into the run.
 Folders holding nothing convertible are badged so you can see them at a glance
 rather than wondering why they contribute nothing.
 
-**Under-size slider.** Skipping saves *time*, not space - a skipped file is
-copied at its original size. Untick "copy under-size files" if you would rather
-drop them entirely.
+**Under-size slider.** The default is `0`, so every file is converted. Raising
+it saves *time*, not space - a skipped file is copied at its original size.
+Untick "copy under-size files" if you would rather drop them entirely.
 
 **Estimate.** Encodes a real stratified sample and measures the result instead
 of trusting a guessed ratio. The measured ratio then becomes the flat ratio used
 by the instant previews.
 
-**Budget.** Set a cap and the panel tells you what fits, what does not, and which
-folders to drop to get under it.
+**Cloud storage budget planning.** Set a target and the panel tells you what
+fits, what does not, and which folders to drop to get under it.
 
 **Duplicates.** MD5 over content, pre-filtered by byte size. Avoids converting the
 same photo three times.
