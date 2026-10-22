@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Local Windows GUI for converting a photo library to AVIF with include/exclude control, budget estimates, verification and safe undo",
+  "description": "Local GUI for converting a photo library to AVIF with include/exclude control, budget estimates, verification and safe undo",
   "license": "MIT",
   "author": "picmagick-gui contributors",
   "engines": {

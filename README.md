@@ -1,19 +1,24 @@
 # picmagick-gui
 
-A local, Windows-first GUI for converting a photo library to AVIF derivatives
-without touching the originals. It scans a folder, lets you include or exclude
-subfolders, previews the output size against a storage budget, converts with
-ImageMagick, and verifies the results.
+A local GUI for Windows and Linux that converts a photo library to AVIF
+derivatives without touching the originals. It scans a folder, lets you include
+or exclude subfolders, previews the output size against a storage budget,
+converts with ImageMagick, and verifies the results.
 
 Everything runs on your machine. There is no account, no telemetry, and no
 upload. The only network request the app makes is an optional check of the
-official ImageMagick GitHub releases feed for portable-build updates.
+official ImageMagick GitHub releases feed for build updates.
 
 ## Requirements
 
-- Windows 10 or 11
+- Windows 10 or 11, or Linux on x86_64
 - [Bun](https://bun.sh) 1.1 or newer
-- ImageMagick 7 with AVIF write support (the app can download a portable build)
+- ImageMagick 7 with AVIF write support (the app can download a portable build
+  on Windows or the official AppImage on Linux)
+
+Linux uses a system ImageMagick 7 when it can write AVIF. Otherwise it can
+install the official x86_64 AppImage. ARM64 Linux and macOS are not supported
+by the automatic downloader; install ImageMagick 7 from your distribution there.
 
 ## Quick start
 
@@ -29,6 +34,17 @@ start.bat
 `http://127.0.0.1:5178` in your browser. Close the minimised **picmagick-gui**
 window to stop the server, or use **Quit** in the header. Quit refuses while a
 conversion is running or paused.
+
+On Linux:
+
+```bash
+bun install
+chmod +x start.sh    # first time only
+./start.sh
+```
+
+`start.sh` starts the server in the foreground and opens your browser. Use
+**Quit** in the header, or press Ctrl+C in the terminal, to stop it.
 
 From a terminal:
 
@@ -50,23 +66,44 @@ set PICMAGIK_SOURCE=D:\Photos
 set PICMAGIK_DESTINATION=D:\Photos-avif
 ```
 
+```bash
+export PICMAGIK_SOURCE="$HOME/Pictures"
+export PICMAGIK_DESTINATION="$HOME/Pictures-avif"
+```
+
 `PICMAGIK_DESTINATION` defaults to `<source>-avif`.
 
-If ImageMagick is not installed but Bun is, the app starts, checks GitHub for
-the latest portable build, and asks on page load whether to install it. Accepting
-downloads the build into `imagemagick/` at the project root. You can also trigger
-the same flow from the header pill or **Health → ImageMagick portable**.
+If ImageMagick is not installed, or cannot write AVIF, the app starts, checks
+GitHub for the latest build, and asks on page load whether to install it.
+Accepting downloads a portable build on Windows or the official AppImage on
+Linux into `imagemagick/` at the project root. You can also trigger the same
+flow from the header pill or **Health → ImageMagick**.
 
 | Command | Does |
 |---|---|
 | `bun start` | Start the server |
+| `./start.sh` | Linux launcher: start the server and open the browser |
 | `bun run typecheck` | TypeScript check |
 | `bun run src/client.check.ts` | Check browser scripts for undefined identifiers |
 
-## Portable ImageMagick and updates
+## Managed ImageMagick and updates
 
-The portable app is kept in `imagemagick/` at the project root. Two layouts are
-recognised:
+Downloaded builds live in `imagemagick/` at the project root. On page load the
+server asks the GitHub releases API for the newest release (cached for 10
+minutes). If ImageMagick is missing, a prompt asks whether to install the
+latest build; choosing **Not now** dismisses it for that page load. If a newer
+managed build exists, the header shows an update pill and a one-time prompt asks
+whether to download it. The same check is available from **Health →
+ImageMagick**.
+
+Updates are refused while a conversion is running or paused, because replacing
+the binaries under live encoders is unsafe. If github.com cannot be reached,
+the app keeps working with the installed copy and the panel says the check is
+offline.
+
+### Windows portable build
+
+Two layouts are recognised:
 
 ```
 imagemagick/
@@ -83,14 +120,6 @@ imagemagick/
   ...
 ```
 
-On page load the server asks the GitHub releases API for the newest
-`7.1.2-*` release (cached for 10 minutes). If ImageMagick is missing, a prompt
-asks whether to install the latest portable build into `imagemagick/`; choosing
-**Not now** only dismisses it for that page load. If a newer portable Q16 build
-exists for an installed copy, the header shows an update pill and a one-time
-prompt asks whether to download it. The same check is available from
-**Health → ImageMagick portable**.
-
 Choosing download runs this sequence on the server:
 
 1. fetches `ImageMagick-<version>-portable-Q16-<arch>.7z` from
@@ -105,10 +134,43 @@ A manual install is just as valid: download the portable Q16 archive from the
 releases page and unzip it into `imagemagick/`. Existing folders are never
 deleted unless they carry the updater's `.picmagik-managed` marker.
 
-Updates are refused while a conversion is running or paused, because replacing
-the binaries under live encoders is unsafe on Windows. If github.com cannot be
-reached, the app keeps working with the installed copy and the panel says the
-check is offline.
+### Linux AppImage
+
+Linux requires ImageMagick 7. A system build that can write AVIF is used first
+and is never shadowed by a download. If no usable system build exists, or it
+cannot write AVIF, the app offers the official x86_64 AppImage from GitHub:
+
+```
+imagemagick/
+  current.txt
+  .picmagik-appimage.json                      <- updater state
+  ImageMagick-7.1.2-34-gcc-x86_64.AppImage
+```
+
+The `gcc` AppImage is preferred because it has the widest glibc compatibility;
+the `clang` build is used when a release has no `gcc` asset. Choosing download
+runs this sequence:
+
+1. fetches the AppImage from `github.com/ImageMagick/ImageMagick/releases`
+2. verifies GitHub's SHA-256 digest when the release API supplies one, and
+   checks the byte count
+3. makes it executable and runs `-version` and `-list format`, requiring the
+   expected version and `AVIF rw+`
+4. renames it into place atomically, updates `current.txt` and the JSON marker,
+   and removes the previous AppImage that this app installed
+
+If FUSE is unavailable (containers and some minimal distributions), the first
+run retries with `APPIMAGE_EXTRACT_AND_RUN=1`. That setting is then inherited by
+the conversion workers, so later runs do not fail the same way.
+
+A manually downloaded AppImage also works: make it executable, place it in
+`imagemagick/`, and press **Check again**. The newest AppImage in that folder is
+discovered by filename.
+
+Automatic AppImage installs support x86_64 Linux only. On other architectures,
+install ImageMagick 7 with AVIF support from your distribution. The folder
+picker uses `zenity` or `kdialog` when available; without a desktop session or
+picker, type the path directly.
 
 ## What it does
 
@@ -135,7 +197,7 @@ library can leak into a new run.
 - `copy` - place verbatim into the output tree, original bytes preserved
 - `skip` - leave alone
 
-**Convert.** Runs `magick.exe` through a worker pool with per-process thread
+**Convert.** Runs `magick` through a worker pool with per-process thread
 pinning, streams progress over SSE, and can be paused or cancelled.
 
 **Pause and resume.** Pause is *graceful*: it stops handing out new work but
@@ -289,7 +351,7 @@ src/
   server.ts     routes, static, SSE hub, job registry
   scan.ts       one walk -> cached file list + directory tree
   policy.ts     selections -> convert | copy | skip
-  convert.ts    magick.exe worker pool, cancel, per-file results
+  convert.ts    magick worker pool, cancel, per-file results
   jobs.ts       run lifecycle and progress events
   estimate.ts   stratified sample -> measured size + time projection
   sync.ts       new / changed / up-to-date analysis
@@ -299,19 +361,20 @@ src/
   budget.ts     what fits under a cap, and what to cut
   manifest.ts   per-run record and precise undo
   health.ts     preflight checks
+  platform.ts   OS constants and native-path helpers
   paths.ts      magick discovery, path safety invariants
-  imagemagick.ts GitHub release check, portable download and install
+  imagemagick.ts GitHub release check, portable/AppImage download and install
   version.ts    version parsing shared by discovery and updates
 public/
   treelogic.js  pure tree logic (toggle, tri-state, include/exclude)
   index.html    layout
   app.js        wiring
   style.css
-imagemagick/    portable ImageMagick (downloaded or placed by hand)
+imagemagick/    managed ImageMagick (downloaded or placed by hand)
 ```
 
-`imagemagick/` is intentionally ignored by Git: the portable build is large and
-is downloaded on demand.
+`imagemagick/` is intentionally ignored by Git: the downloaded build is large
+and is fetched on demand.
 
 ## API
 
@@ -339,9 +402,9 @@ is downloaded on demand.
 | `GET /api/health` | Preflight |
 | `POST /api/shutdown` | Stop the local server when no conversion is running |
 | `GET /api/imagemagick` | Installed build + cached release info |
-| `GET /api/imagemagick/check` | Check GitHub for a newer portable build |
-| `GET /api/imagemagick/progress` | Download/extract/verify progress |
-| `POST /api/imagemagick/install` | Download and install the latest portable build |
+| `GET /api/imagemagick/check` | Check GitHub for a newer managed build |
+| `GET /api/imagemagick/progress` | Download/verify/install progress |
+| `POST /api/imagemagick/install` | Download and install the latest portable build or AppImage |
 | `GET /api/source-file?rel=` | Read-only passthrough for the compare view |
 
 ## Out of scope
@@ -349,8 +412,9 @@ is downloaded on demand.
 Video, by design. This tool handles still images only; `.mp4`, `.mov`, `.avi`
 and other video extensions are classified and skipped.
 
-Also out of scope: watch-folder auto-conversion and automatic deletion of files
-in the destination that have no matching source.
+Also out of scope: watch-folder auto-conversion, automatic deletion of files in
+the destination that have no matching source, and automatic ImageMagick
+downloads on Linux ARM64 or macOS.
 
 ## Privacy
 
@@ -375,4 +439,4 @@ git push origin main --tags
 MIT. See [LICENSE](LICENSE).
 
 ImageMagick is distributed under its own license; the app downloads the
-official portable build rather than bundling it.
+official build rather than bundling it.
