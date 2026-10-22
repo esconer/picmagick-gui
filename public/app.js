@@ -102,6 +102,13 @@ async function boot() {
     renderExtToggles(status.policy.extEnabled);
     updateRedundancy(status);
 
+    // A headless Linux server has no GUI picker; typing the path still works.
+    if (status.canPickFolder === false) {
+      $("btnPickSource").classList.add("hidden");
+      $("btnPick").classList.add("hidden");
+      $("sourceRoot").placeholder = "Type the folder path";
+    }
+
     // A running or paused job lives in the server, not the page. Re-attach to
     // it after a refresh instead of losing the run.
     if (status.liveJobId) {
@@ -632,9 +639,12 @@ async function undoRun(id) {
 }
 window.undoRun = undoRun;
 
-// ── ImageMagick portable updates ────────────
+// ── ImageMagick builds and updates ──────────
 /** @type {any} */
 let imStatus = null;
+
+/** @param {any} im */
+const imKind = (im) => im?.assetKind === "appimage" ? "AppImage" : "portable build";
 
 const shortVersion = (v) => {
   const text = String(v ?? "");
@@ -683,11 +693,13 @@ function renderImageMagickPill(im) {
       : `Download ImageMagick ${im.latest.version}`;
     el.title = im.installed
       ? `Installed ${shortVersion(im.installed.version)} · click to update`
-      : "ImageMagick was not found · click to download the portable build";
+      : `ImageMagick was not found · click to download the ${imKind(im)}`;
   } else if (im && !im.installed) {
     el.classList.remove("hidden");
     el.textContent = "ImageMagick not found";
-    el.title = "Click to download a portable build";
+    el.title = im.supported === false
+      ? "Install ImageMagick 7 with AVIF support from your distribution"
+      : `Click to download the ${imKind(im)}`;
   } else {
     el.classList.add("hidden");
   }
@@ -696,12 +708,16 @@ function renderImageMagickPill(im) {
 /** @param {any} im */
 function openImageMagickUpdate(im) {
   const missing = !im.installed;
+  const supported = im.supported !== false;
+  const kind = imKind(im);
   const installedLine = im.installed
     ? `Installed: <b>${esc(shortVersion(im.installed.version))}</b>`
     : `<span class="bad">ImageMagick was not found on this device.</span>`;
   const latestLine = im.latest
     ? `Latest on GitHub: <b>${esc(im.latest.version)}</b>`
-    : (im.online ? "Latest version: unknown" : `<span class="warn">Could not reach github.com.</span>`);
+    : (!supported
+        ? "Automatic check not available"
+        : im.online ? "Latest version: unknown" : `<span class="warn">Could not reach github.com.</span>`);
 
   const released = im.latest?.publishedAt && !Number.isNaN(Date.parse(im.latest.publishedAt))
     ? ` · released ${new Date(im.latest.publishedAt).toLocaleDateString()}`
@@ -711,34 +727,42 @@ function openImageMagickUpdate(im) {
 
   if (missing) {
     html += `<p class="warn">ImageMagick is required to convert photos. ` +
-      (im.latest
-        ? `Install the latest portable build into the folder below?`
-        : `Download a portable build manually, or check again when github.com is reachable.`) +
+      (!supported
+        ? `Automatic downloads are not available for this platform. ` +
+          `Install ImageMagick 7 with AVIF support using your package manager.`
+        : im.latest
+          ? `Install the latest ${kind} into the folder below?`
+          : `Download the ${kind} manually, or check again when github.com is reachable.`) +
       `</p>`;
   }
 
   if (im.latest) {
     html += `<table>` +
-      `<tr><td class="k">portable build</td><td class="mono">${esc(im.latest.asset.name)}</td></tr>` +
+      `<tr><td class="k">${kind}</td><td class="mono">${esc(im.latest.asset.name)}</td></tr>` +
       `<tr><td class="k">download size</td><td>${fmt(im.latest.asset.size)}</td></tr>` +
       `<tr><td class="k">install into</td><td class="mono">${esc(im.installDir)}</td></tr>` +
       `</table>`;
   }
 
-  if (!im.online) {
+  if (supported && !im.online) {
     const releasePage = im.latest?.pageUrl ?? RELEASES_URL;
+    const manual = im.assetKind === "appimage"
+      ? `download the AppImage from <a href="${esc(releasePage)}" target="_blank" rel="noreferrer" style="color:var(--accent)">GitHub releases</a>, ` +
+        `make it executable, and place it in the folder above.`
+      : `download the portable archive from <a href="${esc(releasePage)}" target="_blank" rel="noreferrer" style="color:var(--accent)">GitHub releases</a> ` +
+        `and unzip it into the folder above.`;
     html += `<p class="warn">No internet connection to github.com` +
-      (im.error ? ` (${esc(im.error)})` : "") + `. You can download the portable ` +
-      `archive manually from <a href="${esc(releasePage)}" target="_blank" rel="noreferrer" style="color:var(--accent)">GitHub releases</a> ` +
-      `and unzip it into the folder above. Then press "Check again".</p>`;
+      (im.error ? ` (${esc(im.error)})` : "") + `. You can ${manual} Then press "Check again".</p>`;
   }
 
   if (im.installed && !im.updateAvailable && im.latest) {
-    html += `<p class="ok">ImageMagick is up to date.</p>`;
+    html += im.assetKind === "appimage" && !im.managed
+      ? `<p class="ok">Using the system ImageMagick; no AppImage is needed.</p>`
+      : `<p class="ok">ImageMagick is up to date.</p>`;
   }
 
   html += `<div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">`;
-  if (im.updateAvailable && im.latest) {
+  if (supported && im.updateAvailable && im.latest) {
     const label = im.installed
       ? `Download and install ${esc(im.latest.version)}`
       : `Install ImageMagick ${esc(im.latest.version)}`;
@@ -824,25 +848,41 @@ async function startImageMagickInstall(im, btn, note) {
 
 /** @param {any} im */
 function imageMagickHealthHTML(im) {
+  const supported = im.supported !== false;
+  const kind = imKind(im);
   const installed = im.installed
     ? `<b>${esc(shortVersion(im.installed.version))}</b><br>` +
       `<span class="muted mono" style="font-size:11px">${esc(im.installed.path)}</span>`
     : `<span class="bad">not found</span>`;
   const latest = im.latest
     ? `<b>${esc(im.latest.version)}</b>` + (im.online ? "" : ` <span class="warn">(cached)</span>`)
-    : (im.online ? "unknown" : `<span class="warn">offline</span>`);
+    : (!supported
+        ? "not checked"
+        : im.online ? "unknown" : `<span class="warn">offline</span>`);
+  const source = !im.installed
+    ? ""
+    : `<tr><td class="k">source</td><td>${im.managed ? esc(kind) : "system ImageMagick"}</td></tr>`;
 
   return `<table>` +
     `<tr><td class="k">installed</td><td>${installed}</td></tr>` +
+    source +
     `<tr><td class="k">latest on GitHub</td><td>${latest}</td></tr>` +
-    `<tr><td class="k">portable folder</td><td class="mono">${esc(im.installDir)}</td></tr>` +
+    `<tr><td class="k">${im.assetKind === "appimage" ? "AppImage folder" : "portable folder"}</td>` +
+    `<td class="mono">${esc(im.installDir)}</td></tr>` +
     `</table>` +
-    (!im.online
+    (!supported
+      ? `<p class="warn">Automatic downloads are not available for this platform. ` +
+        `Install ImageMagick 7 with AVIF support using your package manager.</p>`
+      : "") +
+    (supported && !im.online
       ? `<p class="warn">${esc(im.error ?? "Could not reach github.com.")}</p>`
+      : "") +
+    (im.installed && !im.managed && im.updateAvailable && im.assetKind === "appimage"
+      ? `<p class="warn">The system ImageMagick cannot encode AVIF; downloading the AppImage will take priority.</p>`
       : "") +
     `<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">` +
     `<button id="btnImHealthCheck" class="ghost small">Check again</button>` +
-    (im.updateAvailable
+    (supported && im.updateAvailable
       ? `<button id="btnImHealthInstall" class="primary small">${im.installed ? "Download update" : "Download ImageMagick"}</button>`
       : "") +
     `</div>`;
@@ -930,7 +970,7 @@ $("btnHealth").onclick = async () => {
       `${c.status === "ok" ? "OK" : c.status.toUpperCase()}</td>` +
       `<td>${esc(c.label)}</td><td class="muted">${esc(c.detail)}</td></tr>`).join("")
   }</table>` +
-    `<h4 style="margin:18px 0 6px;font-size:13px">ImageMagick portable</h4>` +
+    `<h4 style="margin:18px 0 6px;font-size:13px">ImageMagick</h4>` +
     `<div id="imHealth" class="muted">Checking github.com for the latest version…</div>`);
 
   try {

@@ -20,6 +20,11 @@ import { applyPolicy, DEFAULT_POLICY, outputPathFor, type Decision } from "./pol
 import type { ScanResult, ScannedFile } from "./scan.ts";
 import { undoManifest, type Manifest } from "./manifest.ts";
 import { analyseSync } from "./sync.ts";
+import { isAppImage } from "./paths.ts";
+import {
+  IMAGEMAGICK_ROOT, isManagedInstall, isTrustedReleaseUrl,
+  pickAppImageAsset, pickPortableAsset,
+} from "./imagemagick.ts";
 import * as tree from "../public/treelogic.js";
 
 let failures = 0;
@@ -256,6 +261,72 @@ await check("tree logic handles exact-case Linux paths", () => {
     }),
     false,
   );
+});
+
+await check("recognises AppImage names case-insensitively", () => {
+  assert.equal(isAppImage("/tmp/ImageMagick-7.1.2-34-gcc-x86_64.AppImage"), true);
+  assert.equal(isAppImage("/tmp/ImageMagick-7.1.2-34-gcc-x86_64.appimage"), true);
+  assert.equal(isAppImage("/tmp/magick"), false);
+});
+
+await check("prefers the gcc x86_64 AppImage", () => {
+  const assets = [
+    { name: "ImageMagick-7.1.2-34-clang-x86_64.AppImage", size: 2, browser_download_url: "https://github.com/a" },
+    { name: "ImageMagick-7.1.2-34-gcc-x86_64.AppImage", size: 3, browser_download_url: "https://github.com/b", digest: "sha256:abc" },
+  ];
+  const picked = pickAppImageAsset(assets, "x64");
+  assert.equal(picked?.name, "ImageMagick-7.1.2-34-gcc-x86_64.AppImage");
+  assert.equal(picked?.size, 3);
+  assert.equal(picked?.digest, "sha256:abc");
+});
+
+await check("falls back to the clang AppImage", () => {
+  const picked = pickAppImageAsset([
+    { name: "ImageMagick-7.1.2-34-clang-x86_64.AppImage", size: 2, browser_download_url: "https://github.com/a" },
+  ], "x64");
+  assert.equal(picked?.name, "ImageMagick-7.1.2-34-clang-x86_64.AppImage");
+});
+
+await check("AppImage selection rejects other architectures", () => {
+  const assets = [
+    { name: "ImageMagick-7.1.2-34-gcc-aarch64.AppImage", size: 2, browser_download_url: "https://github.com/a" },
+  ];
+  assert.equal(pickAppImageAsset(assets, "arm64"), null);
+  assert.equal(pickAppImageAsset(assets, "x64"), null);
+});
+
+await check("portable selection still ignores the HDRI archive", () => {
+  const assets = [
+    { name: "ImageMagick-7.1.2-34-portable-Q16-HDRI-x64.7z", size: 2, browser_download_url: "https://github.com/a" },
+    { name: "ImageMagick-7.1.2-34-portable-Q16-x64.7z", size: 3, browser_download_url: "https://github.com/b", digest: "sha256:def" },
+  ];
+  const picked = pickPortableAsset(assets, "x64");
+  assert.equal(picked?.name, "ImageMagick-7.1.2-34-portable-Q16-x64.7z");
+  assert.equal(picked?.digest, "sha256:def");
+});
+
+await check("trusts only official GitHub release URLs", () => {
+  assert.equal(
+    isTrustedReleaseUrl("https://github.com/ImageMagick/ImageMagick/releases/download/7.1.2-34/x.AppImage"),
+    true,
+  );
+  assert.equal(
+    isTrustedReleaseUrl("http://github.com/ImageMagick/ImageMagick/releases/download/7.1.2-34/x.AppImage"),
+    false,
+  );
+  assert.equal(
+    isTrustedReleaseUrl("https://github.com.evil.test/ImageMagick/ImageMagick/releases/download/x"),
+    false,
+  );
+  assert.equal(
+    isTrustedReleaseUrl("https://github.com/other/repo/releases/download/x"),
+    false,
+  );
+});
+
+await check("managed install detection stays inside the app folder", () => {
+  assert.equal(isManagedInstall(path.join(IMAGEMAGICK_ROOT, "x", "magick.exe")), true);
+  assert.equal(isManagedInstall(path.join(IMAGEMAGICK_ROOT, "..", "elsewhere", "magick")), false);
 });
 
 console.log(failures ? `\n${failures} platform check(s) failed` : "\nplatform OK");
