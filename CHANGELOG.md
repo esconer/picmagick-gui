@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Fixed the `Malformed JSON body` toast after a page reload or EXIF date audit by
+  sending a JSON body with bodyless POST requests.
+
 ## 1.0.0 - 2026-10-21
 
 First public release.
