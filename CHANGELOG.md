@@ -4,6 +4,9 @@
 
 - Fixed the `Malformed JSON body` toast after a page reload or EXIF date audit by
   sending a JSON body with bodyless POST requests.
+- Fixed killed or failed AVIF encodes being reported as skipped and leaving a
+  zero-byte output that later runs treated as complete. A killed encoder now
+  reports its signal instead of an empty error.
 
 ## 1.0.0 - 2026-10-21
 
