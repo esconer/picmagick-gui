@@ -2,7 +2,7 @@
  * ImageMagick picmagick-gui - local server.
  *
  * Bun.serve() on localhost only. Every route either reads state or shells out
- * to magick.exe. The source tree is never written to.
+ * to the local ImageMagick build. The source tree is never written to.
  */
 import { existsSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
@@ -29,7 +29,7 @@ import { Job, getJob, liveJob, pausedJob, newJob, manifestsFor, undoManifest } f
 import { analyseSync, pendingOnly, type SyncReport } from "./sync.ts";
 import { formatBytes } from "./convert.ts";
 import { checkForUpdate, installLatest, installProgress } from "./imagemagick.ts";
-import { CASE_INSENSITIVE, pathKey, REL_SEP } from "./platform.ts";
+import { CASE_INSENSITIVE, IS_LINUX, IS_WINDOWS, pathKey, REL_SEP } from "./platform.ts";
 
 const HERE = import.meta.dir;
 const PUBLIC = path.resolve(HERE, "..", "public");
@@ -155,6 +155,9 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
       /** Browser-side path logic follows the server's platform, not its own. */
       pathSeparator: REL_SEP,
       caseInsensitive: CASE_INSENSITIVE,
+      platform: process.platform,
+      arch: process.arch,
+      canPickFolder: canPickFolder(),
       budgetBytes: state.budgetBytes,
       ratio: state.ratio,
       policy: state.policy,
@@ -387,7 +390,7 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
     return json({ ok: true, message: "picmagick-gui is shutting down." });
   }
 
-  // ---- portable ImageMagick: local install + GitHub update check ----
+  // ---- managed ImageMagick: local install + GitHub update check ----
   if (route === "imagemagick" && req.method === "GET") {
     if (!state.magick) {
       // Pick up a copy the user dropped into imagemagick/ since startup.
@@ -766,7 +769,7 @@ function hashRel(rel: string): string {
 }
 
 /** PowerShell FolderBrowserDialog - gives a real native picker with no extra deps. */
-function folderPicker(title: string): Promise<string | null> {
+function powershellFolderPicker(title: string): Promise<string | null> {
   const ps = `
 Add-Type -AssemblyName System.Windows.Forms
 $d = New-Object System.Windows.Forms.FolderBrowserDialog
@@ -784,6 +787,57 @@ $d.Dispose()
     c.on("error", () => resolve(null));
     c.on("close", () => resolve(out.trim() || null));
   });
+}
+
+type LinuxPicker = { cmd: string; args: (title: string) => string[] };
+
+/**
+ * Zenity first, then KDialog. Both are common, dependency-free GUI pickers;
+ * without either the UI falls back to typing a path.
+ */
+function linuxPickers(): LinuxPicker[] {
+  if (!process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) return [];
+  const out: LinuxPicker[] = [];
+  if (Bun.which("zenity")) {
+    out.push({
+      cmd: "zenity",
+      args: (title) => ["--file-selection", "--directory", `--title=${title}`],
+    });
+  }
+  if (Bun.which("kdialog")) {
+    out.push({
+      cmd: "kdialog",
+      args: (title) => ["--getexistingdirectory", homedir(), "--title", title],
+    });
+  }
+  return out;
+}
+
+function canPickFolder(): boolean {
+  return IS_WINDOWS || (IS_LINUX && linuxPickers().length > 0);
+}
+
+function runPicker(cmd: string, args: string[]): Promise<{ code: number | null; out: string }> {
+  return new Promise((resolve) => {
+    const c = spawn(cmd, args, { stdio: ["ignore", "pipe", "ignore"] });
+    let out = "";
+    c.stdout.on("data", (d) => { out += String(d); });
+    c.on("error", () => resolve({ code: null, out: "" }));
+    c.on("close", (code) => resolve({ code, out }));
+  });
+}
+
+async function folderPicker(title: string): Promise<string | null> {
+  if (IS_WINDOWS) return powershellFolderPicker(title);
+  if (!IS_LINUX) return null;
+  for (const picker of linuxPickers()) {
+    const { code, out } = await runPicker(picker.cmd, picker.args(title));
+    if (code === 0) return out.trim() || null;
+    // A non-zero exit is a cancel, not a missing tool: do not open a second
+    // dialog just because the user changed their mind.
+    return null;
+  }
+  return null;
 }
 
 // --------------------------------------------------------------------------
@@ -877,10 +931,13 @@ console.log(`\n  picmagick-gui running at http://127.0.0.1:${server.port}\n`);
 
 if (process.argv.includes("--open")) {
   const target = `http://127.0.0.1:${server.port}`;
-  const isWin = process.platform === "win32";
-  spawn(
-    isWin ? "cmd" : "open",
-    isWin ? ["/c", "start", "", target] : [target],
-    { windowsHide: true, detached: true, stdio: "ignore" },
-  ).unref();
+  const opener = IS_WINDOWS ? "cmd" : IS_LINUX ? "xdg-open" : "open";
+  const args = IS_WINDOWS ? ["/c", "start", "", target] : [target];
+  spawn(opener, args, {
+    windowsHide: true,
+    detached: true,
+    stdio: "ignore",
+  }).on("error", () => {
+    console.warn(`Could not open a browser automatically. Open ${target} manually.`);
+  }).unref();
 }
