@@ -558,7 +558,7 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
 
     if (decisions.length === 0) throw new HttpError(400, "Nothing to do - everything is already converted.");
 
-    const jobs = Math.max(1, Math.min(body.jobs ?? 9, 32));
+    const jobs = Math.max(1, Math.min(body.jobs ?? 2, 32));
     const job = newJob();
 
     void job.start({

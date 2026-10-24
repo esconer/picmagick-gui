@@ -282,6 +282,14 @@ in the destination are never deleted automatically.
 
 | Setting | Default | Notes |
 |---|---|---|
+| Quality | `q60` | Good size/quality balance for archival derivatives |
+| Resize | none | Full resolution kept for print and crop |
+| Metadata | kept | `-strip` deliberately omitted |
+| Encoder speed | `heic:speed=6` | Much faster than 5 for a small size increase |
+| RAW | off | Toggle it on per-run if you want it |
+| Animated GIF | preserved | ImageMagick 7.1.2 + libheif ≥1.20 writes animated AVIF |
+| Min size | 0 MB | Convert every file; raise it to copy or drop small files |
+| Jobs | 2 | Safe default for high-resolution images; raise it for ordinary photos |
 | Quality | 60 | AVIF quality slider range is 20–90 |
 | Resize | none | Full resolution is kept |
 | Metadata | kept | `-strip` is deliberately omitted |
@@ -364,6 +372,9 @@ Linux requires ImageMagick 7. The app looks in the project’s `imagemagick/`
 folder, then common locations such as `~/.local/bin`, `/usr/local/bin`,
 `/usr/bin`, `/snap/bin`, `/opt/ImageMagick/bin`, and finally `PATH`.
 
+**Under-size slider.** The default is `0`, so every file is converted. Raising
+it saves *time*, not space - a skipped file is copied at its original size.
+Untick "copy under-size files" if you would rather drop them entirely.
 If the system build is missing or cannot write AVIF, the app can install the
 official x86_64 AppImage. The `gcc` build is preferred because it has the widest
 glibc compatibility; the `clang` build is used when no `gcc` asset is available.
@@ -380,6 +391,8 @@ imagemagick/
   ImageMagick-7.1.2-34-gcc-x86_64.AppImage
 ```
 
+**Cloud storage budget planning.** Set a target and the panel tells you what
+fits, what does not, and which folders to drop to get under it.
 A manually downloaded AppImage also works. Make it executable, place it in
 `imagemagick/`, and press **Check again**. The newest AppImage in that folder is
 discovered by filename.

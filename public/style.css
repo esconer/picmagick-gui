@@ -115,7 +115,8 @@ main {
   flex: 0 0 auto;
 }
 .pane-head h2 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); }
-.pane-head-actions { display: flex; gap: 2px; }
+.pane-head-actions { display: flex; gap: 6px; align-items: center; }
+.pane-head-actions button.folder-action { padding: 4px 10px; font-size: 12px; }
 .pane-foot { padding: 8px 14px; border-top: 1px solid var(--line); font-size: 12px; flex: 0 0 auto; }
 
 /* ── source bar ──────────────────────────── */
