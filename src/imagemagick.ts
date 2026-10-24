@@ -1,20 +1,23 @@
 /**
- * ImageMagick portable build management.
+ * ImageMagick build management.
  *
- * The app looks for ImageMagick inside `imagemagick/`. This module
- * asks the official GitHub release feed whether a newer portable Q16 build
- * exists and, when the user agrees, downloads and installs it into that folder.
+ * The app looks for ImageMagick inside `imagemagick/`. This module asks the
+ * official GitHub release feed for the newest build and, when the user agrees,
+ * downloads it into that folder: a portable Q16 archive on Windows, and the
+ * official x86_64 AppImage on Linux.
  *
  * Only the latest release from github.com/ImageMagick/ImageMagick is ever
  * fetched. No URL from the browser is trusted, and nothing outside
  * `imagemagick/` is written to.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { createReadStream, existsSync } from "node:fs";
+import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { MagickInfo } from "./paths.ts";
+import { IS_LINUX, IS_WINDOWS, pathKey } from "./platform.ts";
+import { findMagick, runMagickFile, type MagickInfo } from "./paths.ts";
 import { compareVersions, isNewerVersion, parseVersion } from "./version.ts";
 
 export const IMAGEMAGICK_ROOT = path.resolve(import.meta.dir, "..", "imagemagick");
@@ -28,7 +31,11 @@ export type PortableAsset = {
   name: string;
   size: number;
   url: string;
+  /** GitHub's SHA-256 digest when the API supplies one. */
+  digest: string | null;
 };
+
+export type AssetKind = "portable" | "appimage";
 
 export type LatestRelease = {
   version: string;
@@ -36,6 +43,7 @@ export type LatestRelease = {
   publishedAt: string;
   pageUrl: string;
   asset: PortableAsset;
+  kind: AssetKind;
 };
 
 export type InstallStage =
@@ -70,6 +78,11 @@ export type UpdateStatus = {
   latest: LatestRelease | null;
   /** True when a newer build exists, or when nothing is installed at all. */
   updateAvailable: boolean;
+  /** Automatic installs are Windows and Linux x86_64 only. */
+  supported: boolean;
+  assetKind: AssetKind;
+  /** True when the installed build lives under the app's imagemagick folder. */
+  managed: boolean;
   checkedAt: number | null;
   error: string | null;
   install: InstallProgress;
@@ -119,7 +132,7 @@ export function isTrustedReleaseUrl(raw: string): boolean {
  * excluded: it ends in `portable-Q16-HDRI-x64.7z`, not the suffix we match.
  */
 export function pickPortableAsset(
-  assets: Array<{ name?: unknown; size?: unknown; browser_download_url?: unknown }>,
+  assets: Array<{ name?: unknown; size?: unknown; browser_download_url?: unknown; digest?: unknown }>,
   arch = port(process.arch),
 ): PortableAsset | null {
   const suffix = `-portable-Q16-${arch}.7z`;
@@ -130,9 +143,48 @@ export function pickPortableAsset(
       name: a.name,
       size: Number(a.size) || 0,
       url: a.browser_download_url,
+      digest: typeof a.digest === "string" ? a.digest : null,
     };
   }
   return null;
+}
+
+/**
+ * Official Linux AppImages are x86_64 only. The gcc build has the widest glibc
+ * compatibility; clang is a fallback for releases that lack it.
+ */
+export function pickAppImageAsset(
+  assets: Array<{ name?: unknown; size?: unknown; browser_download_url?: unknown; digest?: unknown }>,
+  arch = process.arch,
+): PortableAsset | null {
+  if (arch !== "x64") return null;
+  const candidates = assets.filter(
+    (a): a is { name: string; size?: unknown; browser_download_url: string; digest?: unknown } =>
+      typeof a.name === "string" &&
+      typeof a.browser_download_url === "string" &&
+      /^ImageMagick-.+-(gcc|clang)-x86_64\.AppImage$/.test(a.name),
+  );
+  const chosen =
+    candidates.find((a) => /-gcc-x86_64\.AppImage$/.test(a.name)) ??
+    candidates.find((a) => /-clang-x86_64\.AppImage$/.test(a.name));
+  if (!chosen) return null;
+  return {
+    name: chosen.name,
+    size: Number(chosen.size) || 0,
+    url: chosen.browser_download_url,
+    digest: typeof chosen.digest === "string" ? chosen.digest : null,
+  };
+}
+
+function pickReleaseAsset(
+  assets: Array<{ name?: unknown; size?: unknown; browser_download_url?: unknown; digest?: unknown }>,
+): { asset: PortableAsset; kind: AssetKind } | null {
+  if (IS_LINUX) {
+    const asset = pickAppImageAsset(assets);
+    return asset ? { asset, kind: "appimage" } : null;
+  }
+  const asset = pickPortableAsset(assets);
+  return asset ? { asset, kind: "portable" } : null;
 }
 
 function errorText(err: unknown): string {
@@ -180,12 +232,22 @@ export async function fetchLatestRelease(force = false): Promise<LatestRelease> 
   }
 
   const assets = Array.isArray(data.assets) ? data.assets : [];
-  const asset = pickPortableAsset(
-    assets as Array<{ name?: unknown; size?: unknown; browser_download_url?: unknown }>,
+  const picked = pickReleaseAsset(
+    assets as Array<{ name?: unknown; size?: unknown; browser_download_url?: unknown; digest?: unknown }>,
   );
-  if (!asset) {
+  if (!picked) {
+    if (IS_LINUX) {
+      if (process.arch !== "x64") {
+        throw new Error(
+          `No official ImageMagick AppImage for ${process.arch} Linux. ` +
+            "Automatic installs support x86_64 only; use ImageMagick 7 from your distribution.",
+        );
+      }
+      throw new Error(`Release ${version} has no official x86_64 AppImage asset.`);
+    }
     throw new Error(`Release ${version} has no portable Q16 build for this CPU (${port(process.arch)}).`);
   }
+  const { asset, kind } = picked;
   if (!isTrustedReleaseUrl(asset.url)) {
     throw new Error("Release asset URL is not on github.com; refusing to use it.");
   }
@@ -196,9 +258,17 @@ export async function fetchLatestRelease(force = false): Promise<LatestRelease> 
     publishedAt: String(data.published_at ?? ""),
     pageUrl: String(data.html_url ?? RELEASES_PAGE),
     asset,
+    kind,
   };
   cached = { at: Date.now(), release };
   return release;
+}
+
+/** True when a binary lives inside the app's own imagemagick folder. */
+export function isManagedInstall(p: string | null | undefined): boolean {
+  if (!p) return false;
+  const root = pathKey(path.resolve(IMAGEMAGICK_ROOT));
+  return pathKey(path.resolve(p)).startsWith(root + path.sep);
 }
 
 /**
@@ -217,6 +287,29 @@ export async function checkForUpdate(opts: {
         libheif: opts.current.libheif,
       }
     : null;
+  const managed = isManagedInstall(installed?.path);
+  const supported = IS_WINDOWS || (IS_LINUX && process.arch === "x64");
+
+  if (!supported) {
+    return {
+      installed,
+      installDir: IMAGEMAGICK_ROOT,
+      online: false,
+      latest: null,
+      updateAvailable: false,
+      supported: false,
+      assetKind: IS_LINUX ? "appimage" : "portable",
+      managed,
+      checkedAt: null,
+      error: installed
+        ? null
+        : IS_LINUX
+          ? `Automatic AppImage installs are only available for x86_64 Linux. ` +
+            "Install ImageMagick 7 with AVIF support from your distribution."
+          : "Automatic ImageMagick installs are only supported on Windows and x86_64 Linux.",
+      install: installProgress(),
+    };
+  }
 
   let latest: LatestRelease | null = null;
   let online = false;
@@ -232,14 +325,28 @@ export async function checkForUpdate(opts: {
     if (cached) latest = cached.release;
   }
 
+  let updateAvailable = false;
+  if (latest) {
+    if (!installed) {
+      updateAvailable = true;
+    } else if (IS_LINUX && !managed) {
+      // Never shadow a working system build. The AppImage is only useful when
+      // the system ImageMagick cannot encode AVIF.
+      updateAvailable = !installed.avifWritable;
+    } else {
+      updateAvailable = isNewerVersion(latest.version, installed.version);
+    }
+  }
+
   return {
     installed,
     installDir: IMAGEMAGICK_ROOT,
     online,
     latest,
-    updateAvailable: Boolean(
-      latest && (!installed || isNewerVersion(latest.version, installed.version)),
-    ),
+    updateAvailable,
+    supported: true,
+    assetKind: latest?.kind ?? (IS_LINUX ? "appimage" : "portable"),
+    managed,
     checkedAt: online ? Date.now() : (cached?.at ?? null),
     error,
     install: installProgress(),
@@ -255,6 +362,10 @@ export async function checkForUpdate(opts: {
  */
 export async function installLatest(): Promise<InstallResult> {
   if (progress.running) throw new Error("An ImageMagick download is already in progress.");
+  if (IS_LINUX) return installLatestAppImage();
+  if (!IS_WINDOWS) {
+    throw new Error("Automatic ImageMagick installs are only supported on Windows and x86_64 Linux.");
+  }
 
   // Claim the lock before the first await so two simultaneous requests cannot
   // both start downloading.
@@ -401,6 +512,290 @@ export async function installLatest(): Promise<InstallResult> {
   } finally {
     await rm(staging, { recursive: true, force: true }).catch(() => {});
     await rm(archive, { force: true }).catch(() => {});
+  }
+}
+
+/** State for the AppImage this app installed, kept beside current.txt. */
+const APPIMAGE_MARKER = ".picmagik-appimage.json";
+
+type ManagedAppImage = {
+  kind?: string;
+  version?: string;
+  file?: string;
+};
+
+async function readManagedAppImage(): Promise<ManagedAppImage | null> {
+  try {
+    const raw = await readFile(path.join(IMAGEMAGICK_ROOT, APPIMAGE_MARKER), "utf8");
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed as ManagedAppImage;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Never hide a system ImageMagick that already works. The AppImage exists to
+ * fill the AVIF gap; a distro build that can encode AVIF should stay in use.
+ */
+function assertNoWorkingSystemMagick(): void {
+  let current: MagickInfo | null = null;
+  try {
+    current = findMagick();
+  } catch {
+    return; // Nothing usable installed: the AppImage is the right choice.
+  }
+  if (!current || isManagedInstall(current.path)) return;
+  if (current.avifWritable && (parseVersion(current.version)?.[0] ?? 0) >= 7) {
+    throw new Error(
+      `ImageMagick ${current.version} at ${current.path} already supports AVIF. ` +
+        "The AppImage is only installed when the system build cannot encode AVIF.",
+    );
+  }
+}
+
+function sha256Digest(digest: string | null): string | null {
+  if (!digest) return null;
+  const match = /^sha256:([a-f0-9]{64})$/i.exec(digest.trim());
+  return match ? match[1].toLowerCase() : null;
+}
+
+async function sha256File(file: string): Promise<string> {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(file)) hash.update(chunk);
+  return hash.digest("hex");
+}
+
+/** Run the downloaded AppImage before trusting it. */
+function verifyAppImage(file: string, expected: string): void {
+  let versionOut: string;
+  let formats: string;
+  try {
+    versionOut = runMagickFile(file, ["-version"], 60_000);
+    formats = runMagickFile(file, ["-list", "format"], 120_000);
+  } catch (err) {
+    throw new Error(`The downloaded AppImage did not run (${errorText(err)}).`);
+  }
+
+  const reported = versionOut.split(/\r?\n/).find((l) => l.startsWith("Version:")) ?? versionOut;
+  const parsed = parseVersion(reported);
+  if (!parsed || compareVersions(parsed, expected) !== 0) {
+    throw new Error(`Downloaded AppImage reports "${reported.trim()}", expected ${expected}.`);
+  }
+
+  const avifLine = formats.split(/\r?\n/).find((l) => /^\s*AVIF\s/.test(l));
+  const mode = avifLine?.trim().split(/\s+/)[1] ?? "";
+  if (!/w/.test(mode)) {
+    throw new Error(`The downloaded AppImage cannot write AVIF (AVIF mode "${mode || "missing"}).`);
+  }
+}
+
+async function writeAppImageState(file: string, version: string): Promise<void> {
+  const marker: ManagedAppImage = { kind: "appimage", version, file };
+  await writeFile(
+    path.join(IMAGEMAGICK_ROOT, APPIMAGE_MARKER),
+    `${JSON.stringify(marker)}\n`,
+    "utf8",
+  );
+  await writeFile(path.join(IMAGEMAGICK_ROOT, "current.txt"), `${file}\n`, "utf8");
+}
+
+/** Delete only the previous AppImage this app recorded as its own. */
+async function removePreviousAppImage(
+  previous: ManagedAppImage | null,
+  keepFile: string,
+): Promise<void> {
+  const file = previous?.file;
+  if (previous?.kind !== "appimage" || typeof file !== "string" || file === keepFile) return;
+  // Marker files are app-written, but never follow a path outside the folder.
+  if (path.basename(file) !== file || !/\.appimage$/i.test(file)) return;
+  await rm(path.join(IMAGEMAGICK_ROOT, file), { force: true }).catch(() => {});
+}
+
+/**
+ * Install the official AppImage on Linux. Unlike the portable Windows build
+ * there is nothing to extract: the asset itself becomes the executable, so the
+ * install is a verified download followed by an atomic rename.
+ */
+async function installLatestAppImage(): Promise<InstallResult> {
+  progress = {
+    running: true,
+    stage: "downloading",
+    message: "Checking for the latest ImageMagick release…",
+    percent: 0,
+    version: null,
+    error: null,
+  };
+
+  let temp: string | null = null;
+  let backup: string | null = null;
+
+  try {
+    if (process.arch !== "x64") {
+      throw new Error(
+        `Automatic AppImage installs are only available for x86_64 Linux, not ${process.arch}.`,
+      );
+    }
+    assertNoWorkingSystemMagick();
+
+    const release = await fetchLatestRelease(true);
+    if (release.kind !== "appimage") {
+      throw new Error("The latest release did not contain an AppImage.");
+    }
+    if (!isTrustedReleaseUrl(release.asset.url)) {
+      throw new Error("Refusing to download ImageMagick from an untrusted URL.");
+    }
+
+    const fileName = path.basename(release.asset.name);
+    const nameVersion = parseVersion(fileName);
+    if (
+      fileName !== release.asset.name ||
+      !/-x86_64\.AppImage$/i.test(fileName) ||
+      !nameVersion ||
+      compareVersions(nameVersion, release.version) !== 0
+    ) {
+      throw new Error(`Refusing an unexpected AppImage name: ${release.asset.name}`);
+    }
+
+    await mkdir(IMAGEMAGICK_ROOT, { recursive: true });
+    const finalFile = path.join(IMAGEMAGICK_ROOT, fileName);
+    const previous = await readManagedAppImage();
+
+    // A previous run may already have downloaded this exact version.
+    if (existsSync(finalFile)) {
+      let usable = false;
+      try {
+        verifyAppImage(finalFile, release.version);
+        usable = true;
+      } catch {
+        // Invalid or partial file: replace it after downloading.
+      }
+      if (usable) {
+        try {
+          await writeAppImageState(fileName, release.version);
+        } catch (err) {
+          console.warn(`AppImage is installed, but its state file was not written: ${errorText(err)}`);
+        }
+        await removePreviousAppImage(previous, fileName).catch(() => {});
+        progress = {
+          running: false,
+          stage: "done",
+          message: `ImageMagick ${release.version} is already installed.`,
+          percent: 100,
+          version: release.version,
+          error: null,
+        };
+        return {
+          version: release.version,
+          path: finalFile,
+          folder: IMAGEMAGICK_ROOT,
+          bytes: 0,
+          replaced: false,
+        };
+      }
+    }
+
+    progress = {
+      running: true,
+      stage: "downloading",
+      message: `Downloading ImageMagick ${release.version}…`,
+      percent: 0,
+      version: release.version,
+      error: null,
+    };
+
+    const stamp = `${process.pid}-${Date.now()}`;
+    temp = path.join(IMAGEMAGICK_ROOT, `.download-${release.version}-${stamp}.AppImage`);
+
+    const bytes = await downloadAsset(release.asset, temp, (percent) => {
+      progress = {
+        ...progress,
+        stage: "downloading",
+        percent,
+        message: `Downloading ImageMagick ${release.version}… ${percent}%`,
+      };
+    });
+
+    progress = { ...progress, stage: "verifying", message: "Checking the download…", percent: 100 };
+    const expectedDigest = sha256Digest(release.asset.digest);
+    if (release.asset.digest && !expectedDigest) {
+      console.warn(`Ignoring unsupported GitHub digest format for ${fileName}.`);
+    }
+    if (expectedDigest) {
+      const actual = await sha256File(temp);
+      if (actual !== expectedDigest) {
+        throw new Error("The downloaded AppImage failed its SHA-256 check.");
+      }
+    }
+
+    await chmod(temp, 0o755);
+    progress = { ...progress, stage: "verifying", message: "Verifying ImageMagick and AVIF support…" };
+    verifyAppImage(temp, release.version);
+
+    progress = { ...progress, stage: "installing", message: `Installing ${fileName}…` };
+    if (existsSync(finalFile)) {
+      backup = `${finalFile}.old-${stamp}`;
+      await rename(finalFile, backup);
+    }
+    try {
+      await rename(temp, finalFile);
+      temp = null;
+    } catch (err) {
+      if (backup) {
+        try {
+          await rename(backup, finalFile);
+          backup = null;
+        } catch {
+          // Leave the backup in place: it is the user's last working copy.
+        }
+      }
+      throw err;
+    }
+    const replaced = Boolean(backup) || Boolean(previous?.file && previous.file !== fileName);
+
+    try {
+      await writeAppImageState(fileName, release.version);
+    } catch (err) {
+      // The binary works and will be found by name even without the pointer.
+      console.warn(`AppImage installed, but its state file was not written: ${errorText(err)}`);
+    }
+    await removePreviousAppImage(previous, fileName).catch(() => {});
+
+    if (backup) {
+      await rm(backup, { force: true }).catch(() => {});
+      backup = null;
+    }
+
+    progress = {
+      running: false,
+      stage: "done",
+      message: `ImageMagick ${release.version} installed.`,
+      percent: 100,
+      version: release.version,
+      error: null,
+    };
+    return {
+      version: release.version,
+      path: finalFile,
+      folder: IMAGEMAGICK_ROOT,
+      bytes,
+      replaced,
+    };
+  } catch (err) {
+    const message = errorText(err);
+    progress = {
+      ...progress,
+      running: false,
+      stage: "error",
+      message: "ImageMagick install failed.",
+      error: message,
+    };
+    throw new Error(message);
+  } finally {
+    // The old AppImage is removed only after the new one is in place. If a
+    // failure left `backup` behind, keep it: it is the user's last working copy.
+    if (temp) await rm(temp, { force: true }).catch(() => {});
   }
 }
 

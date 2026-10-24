@@ -1,378 +1,609 @@
 # picmagick-gui
 
-A local, Windows-first GUI for converting a photo library to AVIF derivatives
-without touching the originals. It scans a folder, lets you include or exclude
-subfolders, previews the output size against a storage budget, converts with
-ImageMagick, and verifies the results.
+A local browser UI for converting a photo library to AVIF derivatives without
+modifying the originals. It scans a folder, lets you include or exclude
+subfolders, previews the output against a storage budget, converts with
+ImageMagick, and records every run so it can be undone precisely.
 
 Everything runs on your machine. There is no account, no telemetry, and no
-upload. The only network request the app makes is an optional check of the
-official ImageMagick GitHub releases feed for portable-build updates.
+upload. The only outbound requests are to GitHub for ImageMagick release checks
+and, if you accept one, the ImageMagick download.
+
+## Contents
+
+- [Features](#features)
+- [Platform support](#platform-support)
+- [Requirements](#requirements)
+- [Install and run](#install-and-run)
+- [Configuration](#configuration)
+- [Using the app](#using-the-app)
+- [Defaults](#defaults)
+- [ImageMagick](#imagemagick)
+- [Safety](#safety)
+- [Troubleshooting](#troubleshooting)
+- [Development](#development)
+- [Project layout](#project-layout)
+- [Local API](#local-api)
+- [Privacy](#privacy)
+- [Out of scope](#out-of-scope)
+- [Contributing](#contributing)
+- [Releasing](#releasing)
+- [License](#license)
+
+## Features
+
+- **Local and private.** The server binds to `127.0.0.1`; photos are read from
+  disk and outputs are written to disk. Nothing is uploaded.
+- **Folder-level control.** A cached directory tree with tri-state
+  include/exclude selection. An explicit include overrides an excluded parent.
+- **A real plan before a long run.** Every file is classified as `convert`,
+  `copy`, or `skip`, with a storage-budget projection and a measured sample
+  estimate.
+- **Safe conversion.** ImageMagick runs in a worker pool. Pause is graceful,
+  resume continues from the first unfinished file, and cancelling leaves valid
+  completed files on disk.
+- **Useful audits.** Duplicate detection, EXIF date reporting, and a visual
+  quality comparison.
+- **Restartable runs.** Existing outputs are skipped, and a paused job lives in
+  the server rather than the browser tab.
+- **Precise undo.** Each run writes a manifest. Undo deletes only files created
+  by that run and refuses paths outside its destination.
+- **Managed ImageMagick.** The app can download and verify the official
+  portable build on Windows or the official AppImage on Linux.
+- **First-class Windows and Linux support.** Native paths, folder pickers, and
+  launchers on both platforms.
+
+## Platform support
+
+| | Windows | Linux |
+|---|---|---|
+| Supported versions | Windows 10 or 11 | Linux |
+| Launcher | `start.bat` | `start.sh` |
+| Folder picker | Native PowerShell dialog | `zenity` or `kdialog`; typed-path fallback |
+| ImageMagick | Portable Q16 build or system install | System ImageMagick 7 or official AppImage |
+| Automatic ImageMagick download | Yes (portable Q16) | Yes on x86_64 (AppImage) |
+| Stop the server | **Quit** or close the minimised server window | **Quit** or `Ctrl+C` in the terminal |
+| CI | Windows check | Linux check |
+
+Linux on non-x86_64 architectures works when ImageMagick 7 with AVIF write
+support is installed. The automatic AppImage installer is x86_64 only.
+macOS is not officially supported.
 
 ## Requirements
 
-- Windows 10 or 11
-- [Bun](https://bun.sh) 1.1 or newer
-- ImageMagick 7 with AVIF write support (the app can download a portable build)
+- [Bun](https://bun.sh) 1.1 or newer.
+- ImageMagick 7 with AVIF write support. Linux requires ImageMagick 7; Windows
+  should use ImageMagick 7 as well.
+- A current browser.
+- Enough free disk space for the output tree.
 
-## Quick start
+The app has no separate build step. Bun runs the TypeScript server and serves
+the browser files directly.
 
-Download the latest source archive from the GitHub Releases page, extract it,
-then run:
-
-```bat
-bun install
-start.bat
-```
-
-`start.bat` starts the local server, waits for it to answer, and opens
-`http://127.0.0.1:5178` in your browser. Close the minimised **picmagick-gui**
-window to stop the server, or use **Quit** in the header. Quit refuses while a
-conversion is running or paused.
-
-From a terminal:
+ImageMagick must be able to **write** AVIF. Check it with:
 
 ```bash
-bun install          # first time only
-bun start            # then open http://127.0.0.1:5178
-bun start:open       # same, but opens the browser
-bun run dev          # hot reload while editing
+magick -list format | grep AVIF    # Linux
+magick -list format | findstr AVIF # Windows
 ```
 
-Change the port with `PORT=6000 bun start` (PowerShell:
-`$env:PORT=6000; bun start`).
+A usable build shows `AVIF rw+`. A build showing `r` or `r--` can read AVIF but
+cannot encode it. The app's **Health** panel reports the same information.
 
-The initial source folder is your Pictures folder, or your home folder if that
-does not exist. Set it in the UI, or override the defaults with:
+If no usable ImageMagick build is found, the app can install a managed build
+into `imagemagick/` at the project root. On Linux, a build that cannot write
+AVIF also triggers the AppImage offer.
+
+## Install and run
+
+Download the latest source archive from the
+[Releases page](https://github.com/esconer/picmagick-gui/releases), or clone the
+repository:
+
+```bash
+git clone https://github.com/esconer/picmagick-gui.git
+cd picmagick-gui
+```
+
+### Windows
+
+1. Install Bun if it is not already available. In PowerShell:
+
+   ```powershell
+   powershell -c "irm bun.sh/install.ps1 | iex"
+   ```
+
+   Open a new terminal afterwards so `bun` is on `PATH`.
+
+2. Install the small set of project dependencies:
+
+   ```bat
+   bun install
+   ```
+
+3. Start the app by double-clicking `start.bat`, or from a terminal:
+
+   ```bat
+   start.bat
+   ```
+
+`start.bat` starts the server in a detached, minimised window, waits for it to
+answer, and opens `http://127.0.0.1:5178`. Close that minimised
+**picmagick-gui** window to stop the server, or use **Quit** in the page header.
+
+### Linux
+
+1. Install Bun if it is not already available:
+
+   ```bash
+   curl -fsSL https://bun.sh/install | bash
+   ```
+
+   Open a new terminal afterwards so `bun` is on `PATH`.
+
+2. Install dependencies and start the launcher:
+
+   ```bash
+   bun install
+   chmod +x start.sh
+   ./start.sh
+   ```
+
+`start.sh` runs the server in the foreground and opens
+`http://127.0.0.1:5178` with `xdg-open`. Use **Quit** in the page header or
+press `Ctrl+C` in the terminal to stop it. In a headless session, open the URL
+manually.
+
+If `zenity` or `kdialog` is installed, the folder buttons open a native picker.
+Without either, type the path directly into the source or destination field.
+
+### Terminal, either platform
+
+```bash
+bun install       # first time, or after dependency changes
+bun start         # open http://127.0.0.1:5178 yourself
+bun start:open    # start and open the browser
+bun run dev       # hot-reload the server while editing
+```
+
+To use a different port:
+
+```bash
+PORT=6000 bun start
+```
+
+```powershell
+$env:PORT=6000; bun start
+```
+
+```bat
+set PORT=6000 && bun start
+```
+
+`start.bat` assumes the default port `5178`. For a custom port on either
+platform, start with `bun start` or `bun start:open` instead of the launcher
+scripts.
+
+The server listens on `127.0.0.1` only. It is not exposed to your network and
+has no login because it is designed to run on the same machine as the browser.
+
+## Configuration
+
+The first launch uses these defaults:
+
+| Setting | Default |
+|---|---|
+| Source folder | `~/Pictures`, or the home folder if that does not exist |
+| Destination | `<source>-avif` |
+| Budget | 10 GB |
+| Port | `5178` |
+
+You can change the source and destination in the UI, or set startup defaults
+with environment variables:
 
 ```bat
 set PICMAGIK_SOURCE=D:\Photos
 set PICMAGIK_DESTINATION=D:\Photos-avif
+start.bat
 ```
 
-`PICMAGIK_DESTINATION` defaults to `<source>-avif`.
-
-If ImageMagick is not installed but Bun is, the app starts, checks GitHub for
-the latest portable build, and asks on page load whether to install it. Accepting
-downloads the build into `imagemagick/` at the project root. You can also trigger
-the same flow from the header pill or **Health → ImageMagick portable**.
-
-| Command | Does |
-|---|---|
-| `bun start` | Start the server |
-| `bun run typecheck` | TypeScript check |
-| `bun run src/client.check.ts` | Check browser scripts for undefined identifiers |
-
-## Portable ImageMagick and updates
-
-The portable app is kept in `imagemagick/` at the project root. Two layouts are
-recognised:
-
+```powershell
+$env:PICMAGIK_SOURCE = "D:\Photos"
+$env:PICMAGIK_DESTINATION = "D:\Photos-avif"
+bun start:open
 ```
+
+```bash
+export PICMAGIK_SOURCE="$HOME/Pictures"
+export PICMAGIK_DESTINATION="$HOME/Pictures-avif"
+bun start:open
+```
+
+`PICMAGIK_DESTINATION` defaults to the source path with `-avif` appended.
+Source, destination, budget, and conversion policy are kept in server memory
+for the current session. Restarting the server restores these defaults; use the
+environment variables when you want a persistent starting point.
+
+## Using the app
+
+1. **Choose the source and destination.** Type both paths, or use the
+   **Browse…** buttons where a native picker is available. The destination must
+   be outside the source; the app refuses a destination nested inside the
+   source because the mirror would recurse into its own output.
+
+2. **Press Scan.** One walk of the library builds the file list and folder
+   tree. Later views reuse that cache.
+
+3. **Choose folders and file types.** Use the tree checkboxes to include or
+   exclude folders. A partly excluded folder shows a dash. Excluding a parent
+   excludes its descendants; re-including a child creates an explicit include
+   override. Source-type toggles control which extensions are eligible. RAW is
+   off by default and can be enabled in the settings.
+
+4. **Review the plan.** Each file ends up in one bucket:
+
+   - `convert` — encode to AVIF
+   - `copy` — copy the original bytes unchanged
+   - `skip` — leave it out
+
+   Files below the minimum size are copied by default; clear **copy under-size
+   files** to skip them instead. The budget card shows what fits. **Estimate**
+   encodes a real sample instead of guessing a compression ratio. **Duplicates**
+   finds identical content by size and MD5. **Dates** reports how many files
+   have a real EXIF capture date, a recovered date, or no date. **Compare q**
+   shows the original beside several AVIF quality levels.
+
+5. **Start the conversion.** Quality, parallel jobs, and encoder speed are in
+   the settings pane. **Overwrite** is opt-in; otherwise existing outputs are
+   skipped. **Only new** restricts a run to files that sync reports as pending.
+
+6. **Pause, resume, or cancel.** Pause is graceful: no new work is handed out,
+   but encoders already in flight finish and land on disk. Resume continues the
+   same job from the first unfinished file. Cancelling keeps completed outputs,
+   which are skipped on the next run. A paused job survives closing the browser
+   tab; reopening the page reattaches to it.
+
+7. **Verify, sync, and undo.** The local API can verify a finished run by
+   decoding outputs and checking dimensions and `DateTimeOriginal`. **Sync**
+   reports new, changed, and up-to-date files, plus orphan outputs without
+   matching sources. **Runs** lists previous manifests and provides undo.
+
+### Pause and restart safety
+
+Resume never redoes a file. The server keeps a set of completed relative paths,
+and the converter also skips outputs that already exist on disk. The second
+check means a resume still works after a server restart, when the in-memory job
+list is gone.
+
+A paused job blocks a new run until it is resumed or cancelled. Existing files
+in the destination are never deleted automatically.
+
+## Defaults
+
+| Setting | Default | Notes |
+|---|---|---|
+| Quality | 60 | AVIF quality slider range is 20–90 |
+| Resize | none | Full resolution is kept |
+| Metadata | kept | `-strip` is deliberately omitted |
+| Encoder speed | 6 | `heic:speed=6` |
+| RAW | off | Enable per run if needed |
+| Animated GIF | preserved | **Flatten GIF** is optional |
+| Minimum size | 1 MB | Smaller files are copied by default |
+| Parallel jobs | 9 | Each job is one thread |
+| Budget | 10 GB | Preview and planning target |
+
+The converter runs the equivalent of:
+
+```bash
+magick <source> -auto-orient -colorspace sRGB -quality 60 -define heic:speed=6 AVIF:<output>
+```
+
+There is no `-strip`, no resize, and no `mogrify`. Originals are never written
+to.
+
+### Why quality 60 and encoder speed 6
+
+aom's AV1 encoder dominates the conversion time. Representative q60 timings for
+a 24 MP photo:
+
+| Speed | Time | Output | Compared with speed 5 |
+|---|---|---|---|
+| 4 | 51.2 s | 0.90 MB | Same size, 2.6× slower |
+| 5 | 18.2 s | 0.90 MB | Byte-identical to 4 |
+| **6** | **4.6 s** | **1.03 MB** | **4× faster, +12% bytes — default** |
+| 8 | 2.5 s | 1.05 MB | 7× faster, +14% bytes |
+| 10 | 0.4 s | 0 bytes | Broken: exits 0 and writes an empty file |
+
+Speed 6 is the knee of the curve. The UI caps the slider at 9, and the converter
+treats an empty output file as a failure regardless of the encoder's exit code.
+
+## ImageMagick
+
+On startup the app searches for a usable ImageMagick build. Builds in
+`imagemagick/` in the project root are preferred. On Linux, the app only offers
+an automatic AppImage download when no system ImageMagick 7 with AVIF write
+support is available; it will not replace a working system build.
+
+If no usable build exists, the page shows an ImageMagick prompt. On Linux, a
+build that cannot write AVIF also triggers the AppImage offer. Accepting it
+downloads a managed build into `imagemagick/`. The same flow is available from
+**Health → ImageMagick** and the header update pill.
+
+### Windows portable build
+
+The updater downloads the official portable Q16 archive for the current CPU
+from the
+[ImageMagick releases page](https://github.com/ImageMagick/ImageMagick/releases).
+Windows 10+ includes `tar.exe`, which can unpack 7z archives; a normal 7-Zip
+installation is also supported. The staged `magick.exe` is run and checked for
+the expected version and writable AVIF support before it replaces anything.
+
+A managed install looks like:
+
+```text
 imagemagick/
-  current.txt                                  <- written by the updater
-  ImageMagick-7.1.2-34-portable-Q16-x64/       <- versioned install
+  current.txt
+  ImageMagick-7.1.2-34-portable-Q16-x64/
     magick.exe
 ```
 
-or an archive unzipped directly into the folder:
+Unzipping the archive contents directly into `imagemagick/` also works:
 
-```
+```text
 imagemagick/
   magick.exe
   ...
 ```
 
-On page load the server asks the GitHub releases API for the newest
-`7.1.2-*` release (cached for 10 minutes). If ImageMagick is missing, a prompt
-asks whether to install the latest portable build into `imagemagick/`; choosing
-**Not now** only dismisses it for that page load. If a newer portable Q16 build
-exists for an installed copy, the header shows an update pill and a one-time
-prompt asks whether to download it. The same check is available from
-**Health → ImageMagick portable**.
+The updater removes only folders it created (marked with
+`.picmagik-managed`) and stale backups. Hand-placed folders are left alone.
 
-Choosing download runs this sequence on the server:
+### Linux: system build or AppImage
 
-1. fetches `ImageMagick-<version>-portable-Q16-<arch>.7z` from
-   `github.com/ImageMagick/ImageMagick/releases`
-2. extracts it to a staging folder (Windows `tar.exe`, or 7-Zip if installed)
-3. runs the staged `magick.exe -version` and `-list format`, requiring the
-   expected version and writable AVIF support
-4. moves it to `imagemagick/ImageMagick-<version>-portable-Q16-<arch>/`, updates
-   `current.txt`, and removes the previous install that this app created
+Linux requires ImageMagick 7. The app looks in the project’s `imagemagick/`
+folder, then common locations such as `~/.local/bin`, `/usr/local/bin`,
+`/usr/bin`, `/snap/bin`, `/opt/ImageMagick/bin`, and finally `PATH`.
 
-A manual install is just as valid: download the portable Q16 archive from the
-releases page and unzip it into `imagemagick/`. Existing folders are never
-deleted unless they carry the updater's `.picmagik-managed` marker.
+If the system build is missing or cannot write AVIF, the app can install the
+official x86_64 AppImage. The `gcc` build is preferred because it has the widest
+glibc compatibility; the `clang` build is used when no `gcc` asset is available.
+The download is checked against GitHub’s SHA-256 digest when supplied, checked
+for the expected byte count, made executable, and tested for AVIF write support
+before it is installed.
 
-Updates are refused while a conversion is running or paused, because replacing
-the binaries under live encoders is unsafe on Windows. If github.com cannot be
-reached, the app keeps working with the installed copy and the panel says the
-check is offline.
+A managed AppImage looks like:
 
-## What it does
-
-**Scan.** One walk of the library builds a cached file list and a directory
-tree. Everything after that reads the cache, so dragging a slider never
-re-touches the disk.
-
-**Source folder.** Type a path or use the folder picker at the top of the
-Folders pane, then press Scan. The path is validated before anything else
-happens:
-
-- a folder that does not exist, or a path that is a file rather than a folder,
-  is rejected with a plain explanation
-- choosing a destination that would sit *inside* the new source is refused,
-  since the mirror would recurse into its own output
-
-Changing the source clears the server-side scan cache and every result derived
-from it (preview, estimate, duplicates, dates, sync), so nothing from the old
-library can leak into a new run.
-
-**Plan.** Every file lands in exactly one bucket: `convert`, `copy`, or `skip`.
-
-- `convert` - re-encode to AVIF
-- `copy` - place verbatim into the output tree, original bytes preserved
-- `skip` - leave alone
-
-**Convert.** Runs `magick.exe` through a worker pool with per-process thread
-pinning, streams progress over SSE, and can be paused or cancelled.
-
-**Pause and resume.** Pause is *graceful*: it stops handing out new work but
-lets encoders already in flight finish and land on disk, so nothing is left
-half-written. Resume continues the same job from the first unprocessed file.
-
-Resume never redoes a file. Two independent mechanisms guarantee that:
-
-1. the job keeps a set of rel paths it has completed, and
-2. the converter skips any output that already exists on disk
-
-The second one means a resume still behaves correctly after a server restart,
-which loses the first. Cancelling instead of resuming is fine too, since the
-files already written stay on disk and get skipped next time.
-
-A paused job survives closing the browser tab. Reopening re-attaches to it and
-shows the Resume button, because the job lives in the server, not the page.
-
-**Sync.** Compares input against output and reports what is new, what changed,
-and what is already done, so the second run is cheap instead of a full re-do.
-
-## Defaults
-
-| Setting | Value | Why |
-|---|---|---|
-| Quality | `q60` | Good size/quality balance for archival derivatives |
-| Resize | none | Full resolution kept for print and crop |
-| Metadata | kept | `-strip` deliberately omitted |
-| Encoder speed | `heic:speed=6` | Much faster than 5 for a small size increase |
-| RAW | off | Toggle it on per-run if you want it |
-| Animated GIF | preserved | ImageMagick 7.1.2 + libheif ≥1.20 writes animated AVIF |
-| Min size | 1 MB | Under-size files are copied, not re-encoded |
-| Jobs | 9 | Each job is one thread, so ~75% of a 12-thread CPU |
-
-The exact command the converter runs:
-
-```
-magick <src> -auto-orient -colorspace sRGB -quality 60 -define heic:speed=6 AVIF:<out>
+```text
+imagemagick/
+  current.txt
+  .picmagik-appimage.json
+  ImageMagick-7.1.2-34-gcc-x86_64.AppImage
 ```
 
-No `-strip`, no `-resize`, never `mogrify`.
+A manually downloaded AppImage also works. Make it executable, place it in
+`imagemagick/`, and press **Check again**. The newest AppImage in that folder is
+discovered by filename.
 
-### Encoder speed
+AppImages normally need FUSE. If FUSE is unavailable, the app retries the first
+run with `APPIMAGE_EXTRACT_AND_RUN=1` and keeps that setting for later
+conversion workers. For a manual test:
 
-aom's AV1 encoder is the whole cost. Representative q60 timings for a 24 MP
-photo:
+```bash
+APPIMAGE_EXTRACT_AND_RUN=1 ./imagemagick/ImageMagick-*.AppImage -version
+```
 
-| speed | time | output | vs speed 5 |
-|---|---|---|---|
-| 4 | 51.2 s | 0.90 MB | same size, 2.6× slower than 5 |
-| **5** | **18.2 s** | **0.90 MB** | byte-identical to 4, so it buys nothing |
-| **6** | **4.6 s** | **1.03 MB** | **4× faster, +12% bytes - default** |
-| 8 | 2.5 s | 1.05 MB | 7× faster, +14% bytes |
-| 10 | 0.4 s | **0 bytes** | **broken: exits 0 and writes an empty file** |
+Automatic AppImage installs are x86_64 only. On other architectures, install
+ImageMagick 7 with AVIF support from your distribution.
 
-Speed 5 sits at the worst point on the curve. 6 is the knee.
+### Update checks
 
-That zero-byte behaviour at 10 is why the converter treats an empty output as a
-failure regardless of exit code, and why the UI caps the slider at 9.
+On page load the server asks GitHub for the latest official ImageMagick release
+and caches the answer for 10 minutes. If a newer managed build exists, the
+header shows an update pill and a one-time prompt offers the download. Choosing
+**Not now** dismisses that version; it can be checked again from **Health**.
 
-## Feature notes
-
-**Folder include/exclude.** The tree has tri-state checkboxes; a partly-excluded
-folder shows as a dash. Excluding a folder excludes everything under it, since
-exclusion is prefix-based. Only the folder itself is stored - never its
-descendants - so the payload stays small regardless of tree depth.
-
-Re-including a subfolder of an excluded parent records an explicit include
-override rather than cancelling the parent's exclusion. Include always beats
-exclude, so you can rescue one folder out of `backup` without quietly putting
-the whole subtree back into the run.
-
-Folders holding nothing convertible are badged so you can see them at a glance
-rather than wondering why they contribute nothing.
-
-**Under-size slider.** Skipping saves *time*, not space - a skipped file is
-copied at its original size. Untick "copy under-size files" if you would rather
-drop them entirely.
-
-**Estimate.** Encodes a real stratified sample and measures the result instead
-of trusting a guessed ratio. The measured ratio then becomes the flat ratio used
-by the instant previews.
-
-**Budget.** Set a cap and the panel tells you what fits, what does not, and which
-folders to drop to get under it.
-
-**Duplicates.** MD5 over content, pre-filtered by byte size. Avoids converting the
-same photo three times.
-
-**Dates.** EXIF audit: how many files carry a real capture date, how many are
-recovered from the filename, and which are genuinely undated.
-
-**Compare q.** Original next to q30/50/60/70/80 renders, so you can settle the
-quality question with your eyes instead of a guess.
-
-**Verify.** After a run, decode the outputs back and check they open, that
-dimensions match the source, and that `DateTimeOriginal` survived. An encoder
-exit code is not proof.
-
-**Undo.** Every run writes a manifest. Undo removes exactly the files that run
-created and refuses anything outside its own destination.
-
-**Sync (incremental).** Reports `new` / `changed` / `up to date`, and offers to
-convert only the pending ones. Changed is detected by the output file being
-older than its source. Outputs with no matching source are reported as orphans
-and never deleted automatically.
+Updates are refused while a conversion is running or paused, and while another
+ImageMagick download is in progress. If GitHub is unreachable, the app keeps
+using the installed build and reports the check as offline.
 
 ## Safety
 
-1. The source tree is opened **read-only**. It is never written to or deleted from.
-2. The destination may not sit inside the source. The server refuses to start a
-   run that would recurse into its own output.
-3. Existing outputs are skipped, so runs are restartable. Overwriting is opt-in.
-4. Undo only deletes paths recorded in a manifest, and only inside that
-   manifest's destination.
-5. Only the scratch folder is ever removed automatically.
-6. An empty output file is treated as a failure even when the encoder exits 0.
-7. The in-browser original preview only serves image extensions, capped at
-   64 MB, streamed from disk.
-8. A killed encoder's truncated output is deleted, so it cannot be mistaken for
-   a finished file on the next run.
-9. A paused job blocks a new run until it is resumed or cancelled.
-10. The ImageMagick updater writes only inside `imagemagick/`, fetches only the
-    latest official GitHub release asset, and verifies the staged binary's
-    version and AVIF support before replacing the current install. It refuses
-    to run while a conversion is live.
+1. The source tree is opened read-only and is never written to or deleted from.
+2. The destination may not be the source folder or sit inside it.
+3. Existing outputs are skipped unless **Overwrite** is enabled.
+4. Undo only removes paths recorded in a manifest and only inside that
+   manifest’s destination.
+5. Only the temporary scratch folder is removed automatically.
+6. An empty output file is a failure even when the encoder exits successfully.
+7. A killed encoder’s partial output is deleted so the next run cannot mistake
+   it for a finished file.
+8. A paused job blocks a new run until it is resumed or cancelled.
+9. The original-preview route serves only image extensions and caps files at
+   64 MB.
+10. The ImageMagick updater writes only inside `imagemagick/`, trusts only the
+    latest official GitHub release asset, and verifies the staged binary before
+    replacing the current install.
+11. **Quit** is refused while a conversion is running or paused, or while an
+    ImageMagick download is in progress.
 
-## Performance notes
+## Troubleshooting
 
-- `GET /api/status` and previews use `fs.statfs()` rather than shelling out to
-  PowerShell, so free-space checks take microseconds instead of seconds.
-- Scans read each directory once and cache the result for every later operation.
-- The run panel emits an event when a file enters the encoder, so a long encode
-  is visibly a long encode rather than a frozen UI.
+### ImageMagick is missing or read-only
 
-## Unicode paths
+Run the format check shown in [Requirements](#requirements). On Linux, the
+distribution may still ship ImageMagick 6; use a current ImageMagick 7 package
+or the AppImage. On Windows, install the portable build when the page offers it, or unzip it
+into `imagemagick/` manually.
 
-Path matching folds to NFC and treats every slash-like character as `/`. A folder
-name can contain **U+2044 FRACTION SLASH** instead of ASCII `/`; the two look
-identical in most fonts, so a path typed or copied by hand can silently become a
-different string.
+### Windows
 
-Folding means such a mismatch shows up as "excluded" (visible) instead of
-"converted anyway" (not visible). The scan also reports `riskyNames` so you can
-see these folders. The tool never renames anything on its own.
+- **`bun` is not recognized.** Install Bun and open a new terminal. `start.bat`
+  prints the official install command if Bun is missing.
+- **The ImageMagick download cannot extract.** Make sure `tar.exe` is available
+  (Windows 10 or newer) or install 7-Zip. You can always unzip the portable
+  archive into `imagemagick/` yourself.
+- **The folder picker does not open.** PowerShell may be restricted. Type the
+  path directly into the field instead.
+- **The browser does not open.** Visit `http://127.0.0.1:5178` manually. The
+  server may still be starting; watch the minimised window for errors.
 
-## Layout
+### Linux
 
+- **`Permission denied` when starting.** Run `chmod +x start.sh` once.
+- **No folder picker appears.** Install `zenity` or `kdialog`, or type the path
+  directly. The picker also needs a desktop session.
+- **ImageMagick 7 is installed but AVIF is read-only.** Install the AVIF/libheif
+  support for your distribution, or use the official AppImage.
+- **The AppImage fails to mount.** The app automatically retries with
+  `APPIMAGE_EXTRACT_AND_RUN=1`. You can also install FUSE 2 if your
+  distribution provides it, or run the AppImage manually with that environment
+  variable.
+- **The browser does not open.** `xdg-open` needs a desktop session. Open
+  `http://127.0.0.1:5178` manually, or use `bun start` instead of
+  `bun start:open`.
+- **ARM64 or another non-x86_64 architecture.** Automatic AppImage installs are
+  unavailable. Install ImageMagick 7 with AVIF support from your distribution.
+
+### Both platforms
+
+- **Port 5178 is already in use.** Stop the old server, or start on another
+  port with `PORT=6000 bun start` (see [Install and run](#install-and-run)).
+- **The ImageMagick update check is offline.** The app can still convert with
+  the installed build. Check your network, proxy, or GitHub access.
+- **A paused job blocks a new run.** Resume or cancel the paused job first.
+
+## Development
+
+```bash
+bun install
+bun run dev
 ```
-src/
-  server.ts     routes, static, SSE hub, job registry
-  scan.ts       one walk -> cached file list + directory tree
-  policy.ts     selections -> convert | copy | skip
-  convert.ts    magick.exe worker pool, cancel, per-file results
-  jobs.ts       run lifecycle and progress events
-  estimate.ts   stratified sample -> measured size + time projection
-  sync.ts       new / changed / up-to-date analysis
-  dedupe.ts     MD5 duplicate detection
-  verify.ts     post-convert decode and dimension/EXIF checks
-  meta.ts       identify, EXIF extraction, date recovery
-  budget.ts     what fits under a cap, and what to cut
-  manifest.ts   per-run record and precise undo
-  health.ts     preflight checks
-  paths.ts      magick discovery, path safety invariants
-  imagemagick.ts GitHub release check, portable download and install
-  version.ts    version parsing shared by discovery and updates
-public/
-  treelogic.js  pure tree logic (toggle, tri-state, include/exclude)
-  index.html    layout
-  app.js        wiring
-  style.css
-imagemagick/    portable ImageMagick (downloaded or placed by hand)
-```
 
-`imagemagick/` is intentionally ignored by Git: the portable build is large and
-is downloaded on demand.
+`bun run dev` starts the server with hot reload. Open
+`http://127.0.0.1:5178` after it starts.
 
-## API
+Useful checks:
 
-| Route | Purpose |
+| Command | Purpose |
 |---|---|
-| `GET /api/status` | Config, scan state, free space, sibling folders |
-| `POST /api/config` | Set source, destination, budget, policy |
-| `POST /api/validate` | Check a candidate source/destination pair |
-| `POST /api/pick` | Native folder picker |
-| `POST /api/scan` | Walk the library |
-| `POST /api/preview` | Apply policy, return counts + budget + health |
-| `POST /api/estimate` | Sample-based projection |
-| `POST /api/sync` | New / changed / up-to-date |
-| `POST /api/duplicates` | MD5 scan |
-| `POST /api/dates` | EXIF audit |
-| `POST /api/compare` | Quality ladder for one file |
-| `POST /api/run` | Start a conversion |
-| `GET /api/stream/:id` | SSE progress |
-| `POST /api/pause/:id` | Graceful pause: stop dispatching, finish in flight |
-| `POST /api/resume/:id` | Continue the same job from where it stopped |
-| `GET /api/job/state?id=` | Snapshot for re-attaching after a refresh |
-| `POST /api/cancel/:id` | Stop, or abandon a paused run |
-| `GET /api/manifests` | Past runs |
-| `POST /api/undo` | Remove a run's output |
-| `GET /api/health` | Preflight |
-| `POST /api/shutdown` | Stop the local server when no conversion is running |
-| `GET /api/imagemagick` | Installed build + cached release info |
-| `GET /api/imagemagick/check` | Check GitHub for a newer portable build |
-| `GET /api/imagemagick/progress` | Download/extract/verify progress |
-| `POST /api/imagemagick/install` | Download and install the latest portable build |
-| `GET /api/source-file?rel=` | Read-only passthrough for the compare view |
+| `bun run typecheck` | TypeScript check |
+| `bun run src/client.check.ts` | Undefined identifiers and missing element IDs in browser scripts |
+| `bun run src/platform.check.ts` | Cross-platform path, AppImage, and safety checks |
+| `bun run check` | Run all of the above |
 
-## Out of scope
+GitHub Actions runs the checks on both Windows and Linux. The release workflow
+also runs the checks and creates a source archive when a `v*` tag is pushed.
 
-Video, by design. This tool handles still images only; `.mp4`, `.mov`, `.avi`
-and other video extensions are classified and skipped.
+## Project layout
 
-Also out of scope: watch-folder auto-conversion and automatic deletion of files
-in the destination that have no matching source.
+```text
+src/
+  server.ts       routes, static files, SSE, job registry
+  scan.ts         one walk -> cached file list and directory tree
+  policy.ts       selections -> convert | copy | skip
+  convert.ts      ImageMagick worker pool, cancel, per-file results
+  jobs.ts         run lifecycle and progress events
+  estimate.ts     stratified sample -> measured size and time projection
+  sync.ts         new / changed / up-to-date analysis
+  dedupe.ts       MD5 duplicate detection
+  verify.ts       decode and check dimensions / EXIF after a run
+  meta.ts         identify, EXIF extraction, date recovery
+  budget.ts       what fits under a cap, and what to cut
+  manifest.ts     per-run record and precise undo
+  health.ts       preflight checks
+  platform.ts     OS constants and native path helpers
+  paths.ts        ImageMagick discovery and path safety
+  imagemagick.ts  release checks, portable/AppImage install and update
+  version.ts      version parsing shared by discovery and updates
+public/
+  index.html      layout
+  app.js          UI wiring
+  treelogic.js    pure tree logic
+  style.css       styling
+imagemagick/      managed ImageMagick (downloaded or placed by hand)
+start.bat         Windows launcher
+start.sh          Linux launcher
+```
+
+`imagemagick/` is intentionally ignored by Git because the downloaded build is
+large and is fetched on demand.
+
+## Local API
+
+The browser talks to a small JSON API on the same local server. It is internal,
+has no authentication, and should only be reachable on `127.0.0.1`. POST routes
+expect a JSON object; send `{}` when there are no fields.
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/status` | Config, scan state, free space, available projects |
+| `POST` | `/api/config` | Set source, destination, budget, policy |
+| `POST` | `/api/validate` | Check a candidate source/destination pair |
+| `POST` | `/api/pick` | Open the native folder picker |
+| `POST` | `/api/scan` | Walk the library |
+| `POST` | `/api/preview` | Apply policy; return counts, budget, and health |
+| `POST` | `/api/estimate` | Measured sample projection |
+| `POST` | `/api/sync` | New / changed / up-to-date analysis |
+| `POST` | `/api/duplicates` | MD5 duplicate scan |
+| `POST` | `/api/dates` | EXIF date audit |
+| `POST` | `/api/compare` | Quality ladder for one file |
+| `POST` | `/api/run` | Start a conversion |
+| `GET` | `/api/stream/:id` | SSE progress stream |
+| `POST` | `/api/pause/:id` | Graceful pause |
+| `POST` | `/api/resume/:id` | Continue a paused job |
+| `GET` | `/api/job/state?id=` | Snapshot for reattaching after a refresh |
+| `POST` | `/api/cancel/:id` | Cancel a running or paused job |
+| `POST` | `/api/verify` | Verify a finished run |
+| `GET` | `/api/manifests` | Previous runs |
+| `POST` | `/api/undo` | Remove a run’s output |
+| `GET` | `/api/health` | Preflight checks |
+| `POST` | `/api/shutdown` | Stop the local server when idle |
+| `GET` | `/api/imagemagick` | Installed build and cached release info |
+| `GET` | `/api/imagemagick/check` | Check GitHub for a newer build |
+| `GET` | `/api/imagemagick/progress` | Download / verify / install progress |
+| `POST` | `/api/imagemagick/install` | Download and install the latest managed build |
+| `GET` | `/api/source-file?rel=` | Read-only source file for the compare view |
 
 ## Privacy
 
-- All scanning, conversion and verification happen locally.
-- No analytics, telemetry or cloud calls.
-- The only outbound request is the ImageMagick release check and, if you accept
-  an update, the download from `github.com/ImageMagick/ImageMagick`.
-- The app binds to `127.0.0.1` only.
+- All scanning, conversion, and verification happen locally.
+- There are no analytics, telemetry, accounts, or cloud calls.
+- The only outbound requests are the ImageMagick release check and an optional
+  ImageMagick download, both to GitHub (`api.github.com` and
+  `github.com/ImageMagick/ImageMagick`).
+- The web server binds to `127.0.0.1` only.
+
+## Out of scope
+
+- Video. This is a still-image tool; video extensions are classified and
+  skipped.
+- Automatic deletion of destination files that have no matching source.
+- Watch-folder auto-conversion.
+- Automatic ImageMagick downloads on Linux ARM64 or macOS.
+- macOS support.
+
+## Contributing
+
+Keep each change focused. Create a branch from `main`, make the change, run
+`bun run check`, and open a pull request. Changes that affect path handling or
+ImageMagick discovery should pass both the Windows and Linux CI jobs.
 
 ## Releasing
 
-The repository includes a GitHub Actions workflow that runs the checks and
-attaches a source archive when a tag is pushed:
+Push a version tag to trigger the release workflow:
 
 ```bash
 git tag v1.0.0
 git push origin main --tags
 ```
 
+The workflow runs its checks on Windows, builds
+`picmagick-gui-<tag>.zip` from the repository, and attaches it to the GitHub
+release.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
 
-ImageMagick is distributed under its own license; the app downloads the
-official portable build rather than bundling it.
+ImageMagick is distributed under its own license. This project downloads the
+official build rather than bundling it.
