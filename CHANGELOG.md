@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed the `Malformed JSON body` toast after a page reload or EXIF date audit by
+  sending a JSON body with bodyless POST requests.
+- Fixed killed or failed AVIF encodes being reported as skipped and leaving a
+  zero-byte output that later runs treated as complete. A killed encoder now
+  reports its signal instead of an empty error.
 - Added Linux x86_64 support alongside Windows, with native path separators and
   platform-aware case handling throughout scan, policy, sync and undo.
 - Added verified download and update of the official ImageMagick x86_64 AppImage,

@@ -78,6 +78,12 @@ export async function analyseSync(
           try {
             const st = await stat(o);
             outBytes = (outBytes ?? 0) + st.size;
+            if (st.size === 0) {
+              // A zero-byte file is a failed encode, not a finished output.
+              allPresent = false;
+              reason = "output is empty";
+              continue;
+            }
             if (st.mtimeMs < d.file.mtime) {
               allPresent = false;
               anyStale = true;

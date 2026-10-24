@@ -50,7 +50,12 @@ const api = async (path, opts) => {
   const res = await fetch("/api/" + path, {
     headers: { "content-type": "application/json" },
     ...opts,
-    body: opts?.body ? JSON.stringify(opts.body) : undefined,
+    // POST routes parse a JSON body; send an empty object when the caller has
+    // no payload (scan, dates, pause) instead of an empty request that parses
+    // as malformed JSON.
+    body: opts?.body !== undefined
+      ? JSON.stringify(opts.body)
+      : opts?.method === "POST" ? "{}" : undefined,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error ?? res.statusText);
