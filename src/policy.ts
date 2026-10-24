@@ -9,6 +9,7 @@
 import path from "node:path";
 import type { ScannedFile, ScanResult } from "./scan.ts";
 import { CONVERT_EXTS, RAW_EXTS, extOf } from "./paths.ts";
+import { CASE_INSENSITIVE, relTop } from "./platform.ts";
 
 export type Policy = {
   /** Folder rel-paths that are fully excluded. */
@@ -122,11 +123,11 @@ export function normalisePolicy(p: Partial<Policy> | undefined): Policy {
 const SLASH_LIKE = /[\u002F\u005C\u2044\u2215\u29F5\u29F8\uFF0F\uFF3C]/g;
 
 function foldKey(s: string): string {
-  return s
+  const folded = s
     .normalize("NFC")
     .replace(SLASH_LIKE, "/")
-    .replace(/\/+$/, "")
-    .toLowerCase();
+    .replace(/\/+$/, "");
+  return CASE_INSENSITIVE ? folded.toLowerCase() : folded;
 }
 
 const under = (rel: string, dir: string, norm: string) =>
@@ -215,7 +216,7 @@ export function applyPolicy(
     convertCount: number; copyCount: number; convertBytes: number; copyBytes: number;
   }>();
   const bump = (rel: string, key: "convert" | "copy", bytes: number) => {
-    const top = rel.split("\\")[0] ?? rel;
+    const top = relTop(rel);
     const e = folderMap.get(top) ?? { convertCount: 0, copyCount: 0, convertBytes: 0, copyBytes: 0 };
     if (key === "convert") { e.convertCount++; e.convertBytes += bytes; }
     else { e.copyCount++; e.copyBytes += bytes; }

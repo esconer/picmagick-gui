@@ -10,6 +10,7 @@ import { createHash } from "node:crypto";
 import type { ScannedFile } from "./scan.ts";
 import type { Policy } from "./policy.ts";
 import { classify } from "./policy.ts";
+import { relTop } from "./platform.ts";
 
 export type DuplicateGroup = {
   hash: string;
@@ -96,7 +97,7 @@ export async function findDuplicates(
     if (members.length < 2) continue;
     const size = members[0].size;
     const rels = members.map((m) => m.rel);
-    const folders = new Set(rels.map((r) => r.split("\\")[0]));
+    const folders = new Set(rels.map((r) => relTop(r)));
     groups.push({
       hash,
       size,

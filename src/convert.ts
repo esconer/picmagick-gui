@@ -48,7 +48,7 @@ function runMagick(
   exe: string,
   args: string[],
   signal: AbortSignal,
-): Promise<{ code: number; stderr: string }> {
+): Promise<{ code: number; signal: NodeJS.Signals | null; stderr: string }> {
   return new Promise((resolve) => {
     const child = spawn(exe, args, {
       windowsHide: true,
@@ -67,13 +67,25 @@ function runMagick(
 
     child.on("error", (err) => {
       signal.removeEventListener("abort", onAbort);
-      resolve({ code: -1, stderr: String(err.message ?? err) });
+      resolve({ code: -1, signal: null, stderr: String(err.message ?? err) });
     });
-    child.on("close", (code) => {
+    child.on("close", (code, exitSignal) => {
       signal.removeEventListener("abort", onAbort);
-      resolve({ code: code ?? -1, stderr });
+      resolve({ code: code ?? -1, signal: exitSignal, stderr });
     });
   });
+}
+
+/**
+ * Delete a zero-byte output. An encode can be killed after ImageMagick opens
+ * the destination but before it writes any pixels, leaving a file that the
+ * skip-existing check would otherwise treat as a finished conversion.
+ */
+async function removeEmptyOutput(out: string): Promise<void> {
+  try {
+    const st = await stat(out);
+    if (st.size === 0) await rm(out, { force: true });
+  } catch { /* no output */ }
 }
 
 async function processOne(d: Decision, o: RunOptions): Promise<FileResult> {
@@ -142,10 +154,20 @@ async function processOne(d: Decision, o: RunOptions): Promise<FileResult> {
         `AVIF:${out}`,
       ];
 
-      const { code, stderr } = await runMagick(o.magickPath, args, o.signal);
+      const { code, signal, stderr } = await runMagick(o.magickPath, args, o.signal);
+
+      // A user cancel also ends the child with a signal; don't misreport it as
+      // an encoder crash or an out-of-memory kill.
+      if (o.signal.aborted) {
+        return { ...base, status: "cancelled", seconds: (Date.now() - started) / 1000 };
+      }
 
       if (code !== 0) {
-        lastErr = stderr.trim().split(/\r?\n/).slice(-2).join(" ").slice(0, 200);
+        const detail = stderr.trim().split(/\r?\n/).slice(-2).join(" ").slice(0, 200);
+        lastErr = detail || (signal
+          ? `encoder was killed by ${signal} (likely out of memory)`
+          : `encoder exited with code ${code}`);
+        await removeEmptyOutput(out);
         continue;
       }
 
@@ -155,6 +177,7 @@ async function processOne(d: Decision, o: RunOptions): Promise<FileResult> {
         // code alone is not proof of success.
         if (st.size === 0) {
           lastErr = lastErr || "encoder wrote an empty file";
+          await removeEmptyOutput(out);
           continue;
         }
         totalOut += st.size;
@@ -210,8 +233,10 @@ async function processOne(d: Decision, o: RunOptions): Promise<FileResult> {
 async function overwriteOk(out: string, overwrite: boolean): Promise<boolean> {
   if (overwrite) return true;
   try {
-    await stat(out);
-    return false; // already exists
+    const st = await stat(out);
+    // A zero-byte file is a failed encode, not a finished conversion. Retry it
+    // instead of treating it as an existing output forever.
+    return st.size === 0;
   } catch {
     return true; // free
   }

@@ -12,7 +12,7 @@ export type Category = "image" | "raw" | "video" | "other";
 export type ScannedFile = {
   /** Absolute path on disk. */
   abs: string;
-  /** Path relative to the scan root, using backslashes. Drives the output mirror. */
+  /** Path relative to the scan root, using the platform separator. Drives the output mirror. */
   rel: string;
   dir: string;
   name: string;
