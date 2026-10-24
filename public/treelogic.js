@@ -13,8 +13,20 @@
  * giving up the parent's exclusion.
  */
 
-/** Lowercased copy for case-insensitive matching. */
-export const excludedLower = (set) => new Set([...set].map((e) => e.toLowerCase()));
+/** Lowercased (or unchanged) copy for path matching. */
+export const excludedLower = (set, caseInsensitive = true) =>
+  new Set([...set].map((e) => caseInsensitive ? e.toLowerCase() : e));
+
+/**
+ * Path matching options supplied by the server through /api/status.
+ * Defaults preserve the original Windows behaviour for direct callers.
+ */
+const pathOptions = (opts) => ({
+  sep: opts?.sep === "/" ? "/" : "\\",
+  caseInsensitive: opts?.caseInsensitive !== false,
+});
+
+const fold = (s, caseInsensitive) => caseInsensitive ? s.toLowerCase() : s;
 
 /** Does `prefix` cover `rel`, matching only on a path boundary? */
 /**
@@ -32,12 +44,13 @@ function covers(prefix, rel, dir) {
  * Two passes on purpose: an explicit include anywhere along the path must win
  * over an exclusion higher up, so all prefixes are checked for include first.
  */
-export function isFullyExcluded(rel, ex, inc = new Set()) {
+export function isFullyExcluded(rel, ex, inc = new Set(), opts = {}) {
   if (!rel) return false;
-  const parts = rel.split("\\");
+  const { sep, caseInsensitive } = pathOptions(opts);
+  const parts = rel.split(sep);
   const prefixes = [];
   for (let i = 1; i <= parts.length; i++) {
-    prefixes.push(parts.slice(0, i).join("\\").toLowerCase());
+    prefixes.push(fold(parts.slice(0, i).join(sep), caseInsensitive));
   }
   for (const p of prefixes) if (inc.has(p)) return false;
   for (const p of prefixes) if (ex.has(p)) return true;
@@ -45,9 +58,10 @@ export function isFullyExcluded(rel, ex, inc = new Set()) {
 }
 
 /** True when a descendant is excluded but this folder itself is not. */
-export function hasExcludedDescendant(node, ex, inc = new Set()) {
-  if (node.rel && ex.has(node.rel.toLowerCase())) return true;
-  return node.children.some((c) => hasExcludedDescendant(c, ex, inc));
+export function hasExcludedDescendant(node, ex, inc = new Set(), opts = {}) {
+  const { caseInsensitive } = pathOptions(opts);
+  if (node.rel && ex.has(fold(node.rel, caseInsensitive))) return true;
+  return node.children.some((c) => hasExcludedDescendant(c, ex, inc, opts));
 }
 
 /**
@@ -61,20 +75,22 @@ export function hasExcludedDescendant(node, ex, inc = new Set()) {
  * @param nowExcluded true when the folder should be skipped.
  * @returns {{excluded: Set<string>, included: Set<string>}}
  */
-export function toggleFolder(tree, excluded, rel, nowExcluded, included = new Set()) {
+export function toggleFolder(tree, excluded, rel, nowExcluded, included = new Set(), opts = {}) {
   const ex = new Set(excluded);
   const inc = new Set(included);
-  const key = rel.toLowerCase();
+  const { sep, caseInsensitive } = pathOptions(opts);
+  const key = fold(rel, caseInsensitive);
 
   // "At or below the target": the target itself, or a recorded descendant.
   // Descendants follow the target, so they are cleared in both directions.
   // Ancestors are deliberately NOT in here: excluding a child must never
   // cancel an exclusion the user set on its parent.
   const atOrBelow = (e) => {
-    const k = e.toLowerCase();
-    return k === key || k.startsWith(key + "\\");
+    const k = fold(e, caseInsensitive);
+    return k === key || k.startsWith(key + sep);
   };
-  const ancestorExcluded = [...ex].some((e) => key.startsWith(e.toLowerCase() + "\\"));
+  const ancestorExcluded = [...ex].some((e) =>
+    key.startsWith(fold(e, caseInsensitive) + sep));
 
   for (const e of [...ex]) if (atOrBelow(e)) ex.delete(e);
   for (const e of [...inc]) if (atOrBelow(e)) inc.delete(e);

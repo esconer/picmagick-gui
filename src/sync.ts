@@ -18,6 +18,7 @@ import { stat, readdir } from "node:fs/promises";
 import path from "node:path";
 import type { Decision } from "./policy.ts";
 import { outputPathFor, type Policy } from "./policy.ts";
+import { pathKey } from "./platform.ts";
 
 export type SyncState = "new" | "changed" | "upToDate";
 
@@ -73,7 +74,7 @@ export async function analyseSync(
         let reason: string | undefined;
 
         for (const o of outs) {
-          expected.add(path.resolve(o).toLowerCase());
+          expected.add(pathKey(path.resolve(o)));
           try {
             const st = await stat(o);
             outBytes = (outBytes ?? 0) + st.size;
@@ -123,7 +124,7 @@ export async function analyseSync(
       if (e.isDirectory()) { await walk(full); continue; }
       if (!e.isFile()) continue;
       if (e.name.startsWith(".picmagic-manifest-")) continue;
-      if (expected.has(path.resolve(full).toLowerCase())) continue;
+      if (expected.has(pathKey(path.resolve(full)))) continue;
       try {
         const st = await stat(full);
         orphans.push({ out: full, bytes: st.size });

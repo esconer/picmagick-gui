@@ -9,6 +9,7 @@ import { writeFile, readFile, rm, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import type { FileResult } from "./convert.ts";
+import { pathKey } from "./platform.ts";
 
 export type ManifestEntry = {
   out: string;
@@ -94,12 +95,12 @@ export async function undoManifest(
   manifest: Manifest,
   opts: { dryRun?: boolean } = {},
 ): Promise<UndoResult> {
-  const destRoot = path.resolve(manifest.destination).toLowerCase();
+  const destRoot = pathKey(path.resolve(manifest.destination));
   const res: UndoResult = { removed: 0, missing: 0, bytesFreed: 0, refused: 0, errors: [] };
 
   for (const e of manifest.entries) {
     const target = path.resolve(e.out);
-    if (!target.toLowerCase().startsWith(destRoot + path.sep)) {
+    if (!pathKey(target).startsWith(destRoot + path.sep)) {
       res.refused++;
       continue;
     }
