@@ -9,6 +9,7 @@ import { copyFile, mkdir, stat, rm } from "node:fs/promises";
 import path from "node:path";
 import type { Decision } from "./policy.ts";
 import { outputPathFor, type Policy } from "./policy.ts";
+import { buildEncoderArgs, sourceArgFor } from "./formats.ts";
 
 export type FileStatus = "converted" | "copied" | "skipped" | "failed" | "cancelled";
 
@@ -140,19 +141,23 @@ async function processOne(d: Decision, o: RunOptions): Promise<FileResult> {
 
       await mkdir(path.dirname(out), { recursive: true });
 
-      // Multi-frame sources become animated AVIF as-is. Only -flattenGif
-      // selects frame 0, which discards the animation.
-      const srcArg =
-        o.policy.flattenGif && d.file.ext === "gif" ? `${src}[0]` : src;
+      // Multi-frame sources become animated JXL/AVIF/WebP as-is. HEIC,
+      // JPEG 2000, JPEG, and PNG select frame 0. flattenGif still selects
+      // frame 0 for GIF sources.
+      const srcArg = sourceArgFor(
+        src,
+        d.file.ext,
+        o.policy.outputFormat,
+        o.policy.flattenGif,
+      );
 
-      const args = [
+      const args = buildEncoderArgs({
         srcArg,
-        "-auto-orient",
-        "-colorspace", "sRGB",
-        "-quality", String(q),
-        "-define", `heic:speed=${o.policy.heicSpeed}`,
-        `AVIF:${out}`,
-      ];
+        out,
+        format: o.policy.outputFormat,
+        quality: q,
+        speed: o.policy.heicSpeed,
+      });
 
       const { code, signal, stderr } = await runMagick(o.magickPath, args, o.signal);
 
@@ -215,7 +220,7 @@ async function processOne(d: Decision, o: RunOptions): Promise<FileResult> {
     // If we were killed mid-encode, a truncated output may be sitting on disk.
     // Left alone, the skip-existing check would treat that as finished forever,
     // so a later resume would silently skip the file.
-    if (o.signal.aborted) {
+    if (o.signal.aborted && d.verdict === "convert") {
       for (const q of o.policy.qualities) {
         const partial = outputPathFor(d, o.sourceRoot, o.destination, o.policy, q);
         try {

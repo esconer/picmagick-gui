@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Local GUI for converting a photo library to AVIF with include/exclude control, budget estimates, verification and safe undo",
+  "description": "Local GUI for converting a photo library to JXL, AVIF, WebP, HEIC, JPEG 2000, JPEG, or PNG with include/exclude control, budget estimates, verification and safe undo",
   "license": "MIT",
   "author": "picmagick-gui contributors",
   "engines": {
@@ -14,7 +14,7 @@
     "start": "bun run src/server.ts",
     "start:open": "bun run src/server.ts --open",
     "typecheck": "bunx tsc -p tsconfig.json",
-    "check": "bun run typecheck && bun run src/client.check.ts && bun run src/platform.check.ts"
+    "check": "bun run typecheck && bun run src/client.check.ts && bun run src/platform.check.ts && bun run src/format.check.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

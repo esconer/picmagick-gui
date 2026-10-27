@@ -92,12 +92,43 @@
     <div class="settings-scroll">
 
       <div class="field">
-        <label>Quality <span class="hint">AVIF q</span></label>
+        <label for="outputFormat">Output format</label>
+        <select id="outputFormat" aria-describedby="formatNote">
+          <option value="jxl">JXL — best compression, slowest encode</option>
+          <option value="avif" selected>AVIF — excellent compression, default</option>
+          <option value="webp">WebP — small files, wide browser support</option>
+          <option value="heic">HEIC — Apple-friendly, needs an encoder</option>
+          <option value="jp2">JPEG 2000 — archival, larger files</option>
+          <option value="jpeg">JPEG — universal, no transparency</option>
+          <option value="png">PNG — lossless, largest files</option>
+        </select>
+        <p class="note" id="formatNote">AVIF is the default. Choose a format before starting a run.</p>
+      </div>
+
+      <div class="field" id="qualityField">
+        <label id="qualityLabel">
+          <span id="qualityLabelText">Quality</span>
+          <span class="hint" id="qualityHint">AVIF q</span>
+        </label>
         <div class="row">
-          <input id="quality" type="range" min="20" max="90" step="5" value="60">
+          <input id="quality" type="range" min="20" max="90" step="5" value="60"
+                 aria-describedby="qualityNote">
           <output id="qualityOut">60</output>
         </div>
-        <p class="note">q60 is the default and gives the best balance between size and quality. Use q70–80 for critical images, q30–50 only for thumbnails/smaller copies.</p>
+        <p class="note" id="qualityNote">q60 is the default and gives the best balance between size and quality. Use q70–80 for critical images, q30–50 only for thumbnails/smaller copies.</p>
+      </div>
+
+      <div class="field" id="speedField">
+        <label id="speedLabel">
+          <span id="speedLabelText">Encoder speed</span>
+          <span class="hint" id="speedHint">aom AV1</span>
+        </label>
+        <div class="row">
+          <input id="heicSpeed" type="range" min="4" max="9" step="1" value="6"
+                 aria-describedby="speedNote">
+          <output id="heicSpeedOut">6</output>
+        </div>
+        <p class="note" id="speedNote">6 is the default and works best. Higher is faster and slightly larger. 10 is not offered: it exits successfully but writes an empty file.</p>
       </div>
 
       <div class="field">
@@ -156,16 +187,6 @@
         <p class="note">Each job is pinned to one thread. 2 is the safe default for
           high-resolution images; raise it for ordinary photos when memory allows.
           Changes apply to a run in progress on the next file.</p>
-      </div>
-
-      <div class="field">
-        <label>Encoder speed <span class="hint">aom AV1</span></label>
-        <div class="row">
-          <input id="heicSpeed" type="range" min="4" max="9" step="1" value="6">
-          <output id="heicSpeedOut">6</output>
-        </div>
-        <p class="note">6 is the default and works best. Higher is faster and slightly
-          larger. 10 is not offered: it exits successfully but writes an empty file.</p>
       </div>
 
     </div>

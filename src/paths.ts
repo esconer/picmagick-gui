@@ -9,6 +9,7 @@ import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { IS_LINUX, IS_WINDOWS, MAGICK_BIN, pathKey } from "./platform.ts";
 import { compareVersions, parseVersion } from "./version.ts";
+import { OUTPUT_FORMATS, type OutputFormat } from "./formats.ts";
 
 export const CONVERT_EXTS = [
   "jpg", "jpeg", "jpe", "jfif", "heic", "heif", "png", "bmp", "tif", "tiff", "webp", "gif",
@@ -25,14 +26,62 @@ export const VIDEO_EXTS = [
 
 export const extOf = (p: string) => path.extname(p).replace(/^\./, "").toLowerCase();
 
+export type FormatSupport = {
+  /** Raw mode string from `magick -list format`, e.g. "rw+". */
+  mode: string;
+  writable: boolean;
+  /** Delegate/version text in parentheses, e.g. "libjxl 0.12.0". */
+  detail: string | null;
+};
+
 export type MagickInfo = {
   path: string;
   version: string;
-  /** Raw mode string from `magick -list format`, e.g. "rw+" */
+  /** Capability for every output format this app can write. */
+  formats: Record<OutputFormat, FormatSupport>;
+  /** Compatibility aliases for the AVIF-specific code paths. */
   avifMode: string;
   avifWritable: boolean;
   libheif: string | null;
 };
+
+/**
+ * Parse the relevant rows from `magick -list format`.
+ *
+ * The trailing `*` is optional and common: the bundled build prints
+ * `JXL* rw+`, `WEBP* rw+`, `JP2* rw-`, `JPEG* rw-`, and `PNG* rw-`, while
+ * `AVIF` and `HEIC` have no star. `rw+` and `rw-` are both writable; `+`
+ * additionally supports multiple frames/adjoin.
+ */
+export function parseFormatSupport(text: string): Record<OutputFormat, FormatSupport> {
+  const out = {} as Record<OutputFormat, FormatSupport>;
+  const names: Record<OutputFormat, string> = {
+    jxl: "JXL",
+    avif: "AVIF",
+    webp: "WEBP",
+    heic: "HEIC",
+    jp2: "JP2",
+    jpeg: "JPEG",
+    png: "PNG",
+  };
+
+  for (const id of OUTPUT_FORMATS) {
+    const name = names[id];
+    const line = text
+      .split(/\r?\n/)
+      .find((l) => new RegExp(`^\\s*${name}\\*?\\s+`).test(l))
+      ?.trim();
+
+    const mode = line?.split(/\s+/)[1] ?? "";
+    // Some rows have more than one parenthetical group. The delegate/version
+    // is the last one: "JPEG XL (ISO/IEC 18181) (libjxl 0.12.0)".
+    const details = [...(line ?? "").matchAll(/\(([^)]+)\)/g)];
+    const detail = details.at(-1)?.[1] ?? null;
+    out[id] = { mode, writable: /w/.test(mode), detail };
+  }
+
+  return out;
+}
 
 /** Directories that hold no convertible payload - never worth showing as a cost. */
 export const JUNK_EXTS = [
@@ -230,24 +279,18 @@ export function findMagick(): MagickInfo {
       }
 
       const formats = runMagickFile(candidate, ["-list", "format"], 30_000);
-
-      const avifLine = formats
-        .split(/\r?\n/)
-        .find((l) => /^\s*AVIF\s/.test(l))
-        ?.trim();
-      const avifMode = avifLine ? (avifLine.split(/\s+/)[1] ?? "") : "";
-      // rw+ means read + write + multi-image. Anything without 'w' cannot encode.
-      const avifWritable = /w/.test(avifMode);
-      const libheif = avifLine?.match(/\((\d+\.\d+\.\d+[^)]*)\)/)?.[1] ?? null;
+      const support = parseFormatSupport(formats);
+      const avif = support.avif;
 
       return {
         path: candidate,
         // Keep the build and architecture, but not the redundant "ImageMagick"
         // prefix. The UI already labels the row.
         version: line.replace(/^Version:\s*/, "").replace(/^ImageMagick\s+/, ""),
-        avifMode,
-        avifWritable,
-        libheif,
+        formats: support,
+        avifMode: avif.mode,
+        avifWritable: avif.writable,
+        libheif: avif.detail,
       };
     } catch (err) {
       if (isBare) continue; // not on PATH, keep looking

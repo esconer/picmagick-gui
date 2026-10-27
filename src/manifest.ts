@@ -10,6 +10,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import type { FileResult } from "./convert.ts";
 import { pathKey } from "./platform.ts";
+import type { OutputFormat } from "./formats.ts";
 
 export type ManifestEntry = {
   out: string;
@@ -26,6 +27,8 @@ export type Manifest = {
   destination: string;
   quality: number[];
   heicSpeed: number;
+  /** Missing in manifests written before format selection; treat as AVIF. */
+  outputFormat?: OutputFormat;
   tool: string;
   entries: ManifestEntry[];
   summary: {

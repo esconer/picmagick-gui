@@ -17,6 +17,10 @@ import {
   type Policy, type Preview,
 } from "./policy.ts";
 import {
+  FORMAT_SPECS, OUTPUT_FORMATS, buildEncoderArgs,
+  isOutputFormat, qualityDisplay, sourceArgFor, type OutputFormat,
+} from "./formats.ts";
+import {
   findMagick, assertDestinationSafe, freeSpace, ensureDir, type MagickInfo,
 } from "./paths.ts";
 import { estimateFromSample, type Estimate } from "./estimate.ts";
@@ -46,7 +50,8 @@ type State = {
   /** rel -> file, so the compare and passthrough routes are O(1) not O(11k). */
   index: Map<string, ScannedFile>;
   policy: Policy;
-  ratio: number;
+  /** Flat fallback ratio per output format, replaced by a real Estimate. */
+  ratios: Record<OutputFormat, number>;
   budgetBytes: number;
   lastPreview: Preview | null;
   lastEstimate: Estimate | null;
@@ -69,6 +74,12 @@ const DEFAULT_SOURCE = defaultSourceRoot();
 const DEFAULT_DESTINATION =
   process.env.PICMAGIK_DESTINATION?.trim() || `${DEFAULT_SOURCE}-avif`;
 
+function defaultRatios(): Record<OutputFormat, number> {
+  return Object.fromEntries(
+    OUTPUT_FORMATS.map((id) => [id, FORMAT_SPECS[id].defaultRatio]),
+  ) as Record<OutputFormat, number>;
+}
+
 const state: State = {
   sourceRoot: DEFAULT_SOURCE,
   destination: DEFAULT_DESTINATION,
@@ -76,7 +87,7 @@ const state: State = {
   scan: null,
   index: new Map(),
   policy: normalisePolicy(DEFAULT_POLICY),
-  ratio: 0.174,
+  ratios: defaultRatios(),
   budgetBytes: 10 * 1024 ** 3,
   lastPreview: null,
   lastEstimate: null,
@@ -92,9 +103,47 @@ function requireMagick(): MagickInfo {
   return state.magick;
 }
 
+const currentRatio = () => state.ratios[state.policy.outputFormat];
+
+/**
+ * Merge a policy update without losing the per-format slider values.
+ *
+ * When the format changes and the caller did not send a quality or speed,
+ * apply that format's defaults rather than reusing AVIF's. The UI always
+ * sends both values, so this mainly protects direct API callers.
+ */
+function mergePolicyUpdate(current: Policy, incoming: Partial<Policy> | undefined): Policy {
+  const merged = { ...current, ...(incoming ?? {}) };
+  const nextFormat = isOutputFormat(merged.outputFormat)
+    ? merged.outputFormat
+    : current.outputFormat;
+  const formatChanged = nextFormat !== current.outputFormat;
+  const spec = FORMAT_SPECS[nextFormat];
+
+  return normalisePolicy({
+    ...merged,
+    outputFormat: nextFormat,
+    qualities: incoming?.qualities
+      ?? (formatChanged ? [spec.quality.default] : current.qualities),
+    heicSpeed: incoming?.heicSpeed
+      ?? (formatChanged ? spec.speed.default : current.heicSpeed),
+  });
+}
+
+/** Apply a policy update and drop reports that described the old format. */
+function applyPolicyUpdate(incoming: Partial<Policy> | undefined): void {
+  if (!incoming) return;
+  const previous = state.policy.outputFormat;
+  state.policy = mergePolicyUpdate(state.policy, incoming);
+  if (state.policy.outputFormat !== previous) {
+    state.lastEstimate = null;
+    state.sync = null;
+  }
+}
+
 function currentPreview(): Preview {
   if (!state.scan) throw new HttpError(400, "Scan the library first.");
-  state.lastPreview = applyPolicy(state.scan, state.policy, state.ratio);
+  state.lastPreview = applyPolicy(state.scan, state.policy, currentRatio());
   return state.lastPreview;
 }
 
@@ -159,7 +208,10 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
       arch: process.arch,
       canPickFolder: canPickFolder(),
       budgetBytes: state.budgetBytes,
-      ratio: state.ratio,
+      ratio: currentRatio(),
+      ratios: state.ratios,
+      outputFormat: state.policy.outputFormat,
+      formats: OUTPUT_FORMATS.map((id) => FORMAT_SPECS[id]),
       policy: state.policy,
       scanned: Boolean(state.scan),
       scannedAt: state.scan?.scannedAt ?? null,
@@ -172,6 +224,7 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
             path: state.magick.path,
             avifWritable: state.magick.avifWritable,
             libheif: state.magick.libheif,
+            formats: state.magick.formats,
           }
         : null,
       // Expose whichever job is live so a refreshed page can re-attach to it,
@@ -195,7 +248,7 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
     if (typeof body.destination === "string") state.destination = body.destination;
     if (typeof body.budgetBytes === "number") state.budgetBytes = body.budgetBytes;
     if (Array.isArray(body.redundantRoots)) state.redundantRoots = body.redundantRoots;
-    if (body.policy) state.policy = normalisePolicy({ ...state.policy, ...body.policy });
+    applyPolicyUpdate(body.policy);
 
     // A new source invalidates everything derived from the old one.
     if (nextSource !== state.sourceRoot) {
@@ -208,6 +261,7 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
       state.sync = null;
       state.lastPreview = null;
       state.lastEstimate = null;
+      state.ratios = defaultRatios();
     }
 
     return json({
@@ -248,6 +302,7 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
   // ---- scan ----
   if (route === "scan" && req.method === "POST") {
     const body = await readBody<{ sourceRoot?: string }>(req);
+    const previousSource = state.sourceRoot;
     if (body.sourceRoot) {
       state.sourceRoot = body.sourceRoot;
       assertDestinationSafe(state.sourceRoot, state.destination);
@@ -261,6 +316,9 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
     state.verify = null;
     state.dates = null;
     state.lastEstimate = null;
+    // Measured ratios describe the current source. Keep them on a re-scan of
+    // the same folder; reset only when the source actually changed.
+    if (state.sourceRoot !== previousSource) state.ratios = defaultRatios();
     return json({
       ok: true,
       durationMs: Date.now() - t0,
@@ -276,10 +334,15 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
   // ---- preview: apply policy, no disk I/O beyond the cached scan ----
   if (route === "preview" && req.method === "POST") {
     const body = await readBody<{ policy?: Partial<Policy> }>(req);
-    if (body.policy) state.policy = normalisePolicy({ ...state.policy, ...body.policy });
+    applyPolicyUpdate(body.policy);
     const preview = currentPreview();
     const budget: BudgetPlan = planBudget(preview, state.budgetBytes);
-    const health = await runHealthCheck(state.sourceRoot, state.destination, preview.estOutputBytes);
+    const health = await runHealthCheck(
+      state.sourceRoot,
+      state.destination,
+      preview.estOutputBytes,
+      state.policy.outputFormat,
+    );
     return json({
       convert: preview.convert.length,
       copy: preview.copy.length,
@@ -288,6 +351,8 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
       estOutputBytes: preview.estOutputBytes,
       estOutputFiles: preview.estOutputFiles,
       ratio: preview.compressionRatio,
+      outputFormat: state.policy.outputFormat,
+      formatLabel: FORMAT_SPECS[state.policy.outputFormat].label,
       byFolder: preview.byFolder,
       budget,
       health,
@@ -299,9 +364,10 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
   // ---- estimate: real sample ----
   if (route === "estimate" && req.method === "POST") {
     const body = await readBody<{ sampleSize?: number; jobs?: number; policy?: Partial<Policy> }>(req);
-    if (body.policy) state.policy = normalisePolicy({ ...state.policy, ...body.policy });
+    applyPolicyUpdate(body.policy);
     const preview = currentPreview();
     const magick = requireMagick();
+    const format = state.policy.outputFormat;
     const est = await estimateFromSample({
       convert: preview.convert,
       copy: preview.copy,
@@ -310,11 +376,11 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
       policy: state.policy,
       jobs: Math.max(1, Math.min(body.jobs ?? 4, 16)),
       sampleSize: Math.max(10, Math.min(body.sampleSize ?? 120, 2000)),
-      flatRatio: state.ratio,
+      flatRatio: state.ratios[format],
     });
     state.lastEstimate = est;
-    // A real measurement becomes the flat ratio for instant previews.
-    if (est.method === "sampled" && est.sampleSize > 0) state.ratio = est.ratio;
+    // A real measurement becomes the flat ratio for this format only.
+    if (est.method === "sampled" && est.sampleSize > 0) state.ratios[format] = est.ratio;
     return json(est);
   }
 
@@ -366,6 +432,7 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
     const preview = state.scan ? currentPreview() : null;
     const report = await runHealthCheck(
       state.sourceRoot, state.destination, preview?.estOutputBytes ?? 0,
+      state.policy.outputFormat,
     );
     return json(report);
   }
@@ -444,38 +511,54 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
       ok: true,
       ...result,
       installed: state.magick
-        ? { version: state.magick.version, path: state.magick.path, avifWritable: state.magick.avifWritable }
+        ? {
+            version: state.magick.version,
+            path: state.magick.path,
+            avifWritable: state.magick.avifWritable,
+            formats: state.magick.formats,
+          }
         : null,
     });
   }
 
   // ---- quality preview: render one image at several qualities ----
   if (route === "compare" && req.method === "POST") {
-    const body = await readBody<{ rel: string; qualities?: number[] }>(req);
+    const body = await readBody<{ rel: string; qualities?: number[]; format?: string }>(req);
     if (!state.scan) throw new HttpError(400, "Scan the library first.");
     const file = state.index.get(body.rel);
     if (!file) throw new HttpError(404, `Not in scan: ${body.rel}`);
 
+    const format = isOutputFormat(body.format) ? body.format : state.policy.outputFormat;
+    const spec = FORMAT_SPECS[format];
     const magick = requireMagick();
-    const qualities = (body.qualities ?? [30, 50, 60, 70, 80]).slice(0, 6);
+    const support = magick.formats[format];
+    if (!support?.writable) {
+      throw new HttpError(
+        400,
+        `${spec.label} cannot be encoded by this ImageMagick build ` +
+          `(format mode "${support?.mode || "missing"}").`,
+      );
+    }
+
+    const qualities = (body.qualities ?? spec.compareQualities).slice(0, 6);
     // Fixed location. This previously took a destination from the request
     // body, which let a caller direct writes anywhere on the machine.
     const outDir = path.resolve(HERE, "..", ".preview-cache");
     await ensureDir(outDir);
 
-    const variants: { quality: number; url: string; bytes: number }[] = [];
+    const srcArg = sourceArgFor(file.abs, file.ext, format, false);
+    const speed = state.policy.heicSpeed;
+    const variants: { quality: number; label: string; url: string; bytes: number }[] = [];
     const errors: string[] = [];
     for (const q of qualities) {
-      // Keep the .avif extension: the preview route sets image/avif explicitly,
-      // and stripping it would only confuse anything that sniffs by filename.
-      const name = `cmp-${hashRel(file.rel)}-q${q}.avif`;
+      // Include format and speed in the name so changing either slider cannot
+      // serve a stale preview from the disposable cache.
+      const name = `cmp-${hashRel(file.rel)}-${format}-q${q}-s${speed}.${spec.ext}`;
       const out = path.join(outDir, name);
       await new Promise<void>((resolve) => {
-        const c = spawn(magick.path, [
-          file.abs, "-auto-orient", "-colorspace", "sRGB",
-          "-quality", String(q), "-define", `heic:speed=${state.policy.heicSpeed}`,
-          `AVIF:${out}`,
-        ], { windowsHide: true, env: { ...process.env, MAGICK_THREAD_LIMIT: "1" } });
+        const c = spawn(magick.path, buildEncoderArgs({
+          srcArg, out, format, quality: q, speed,
+        }), { windowsHide: true, env: { ...process.env, MAGICK_THREAD_LIMIT: "1" } });
         c.on("close", () => resolve());
         c.on("error", () => resolve());
       });
@@ -484,11 +567,18 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
         size = (await stat(out)).size;
         if (size === 0) { errors.push(`q${q}: encoder wrote nothing`); continue; }
       } catch { errors.push(`q${q}: no output produced`); continue; }
-      variants.push({ quality: q, url: `/preview-cache/${name}`, bytes: size });
+      variants.push({
+        quality: q,
+        label: qualityDisplay(format, q),
+        url: `/preview-cache/${name}`,
+        bytes: size,
+      });
     }
 
     return json({
       rel: file.rel,
+      format,
+      formatLabel: spec.label,
       originalUrl: `/api/source-file?rel=${encodeURIComponent(file.rel)}`,
       originalBytes: file.size,
       variants,
@@ -541,9 +631,18 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
           : "A conversion is already running.",
       );
     }
-    if (body.policy) state.policy = normalisePolicy({ ...state.policy, ...body.policy });
-    const preview = currentPreview();
     const magick = requireMagick();
+    const requested = mergePolicyUpdate(state.policy, body.policy);
+    const requestedSupport = magick.formats[requested.outputFormat];
+    if (!requestedSupport?.writable) {
+      throw new HttpError(
+        400,
+        `${FORMAT_SPECS[requested.outputFormat].label} cannot be encoded by this ImageMagick build ` +
+          `(format mode "${requestedSupport?.mode || "missing"}").`,
+      );
+    }
+    if (body.policy) applyPolicyUpdate(body.policy);
+    const preview = currentPreview();
     assertDestinationSafe(state.sourceRoot, state.destination);
     await ensureDir(state.destination);
 
@@ -572,7 +671,12 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
       qualityLabel: state.policy.qualities,
     });
 
-    return json({ jobId: job.id, total: decisions.length, jobs });
+    return json({
+      jobId: job.id,
+      total: decisions.length,
+      jobs,
+      outputFormat: state.policy.outputFormat,
+    });
   }
 
   // ---- SSE progress ----
@@ -657,7 +761,7 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
   if (route === "sync" && req.method === "POST") {
     if (!state.scan) throw new HttpError(400, "Scan the library first.");
     const body = await readBody<{ policy?: Partial<Policy> }>(req);
-    if (body.policy) state.policy = normalisePolicy({ ...state.policy, ...body.policy });
+    applyPolicyUpdate(body.policy);
     const preview = currentPreview();
     const decisions = [...preview.convert, ...preview.copy];
 
@@ -680,9 +784,10 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
       orphans: report.orphans.slice(0, 25),
       estOutputBytes: Math.round(
         pending.filter((d) => d.verdict === "convert").reduce((a, d) => a + d.file.size, 0) *
-          state.ratio * Math.max(1, state.policy.qualities.length) +
+          currentRatio() * Math.max(1, state.policy.qualities.length) +
         pending.filter((d) => d.verdict === "copy").reduce((a, d) => a + d.file.size, 0),
       ),
+      outputFormat: state.policy.outputFormat,
       durationMs: report.durationMs,
       // A slice for the panel; the full list is thousands of rows.
       changed: report.entries.filter((e) => e.state === "changed").slice(0, 50),
@@ -729,7 +834,8 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
     return json({
       manifests: list.map((m) => ({
         id: m.id, createdAt: m.createdAt, summary: m.summary,
-        quality: m.quality, destination: m.destination,
+        quality: m.quality, outputFormat: m.outputFormat ?? "avif",
+        destination: m.destination,
       })),
     });
   }
@@ -851,17 +957,32 @@ const MIME: Record<string, string> = {
   ".json": "application/json; charset=utf-8",
 };
 
+/** Compare previews are written in the selected output format. */
+const PREVIEW_MIME: Record<string, string> = {
+  ".jxl": "image/jxl",
+  ".avif": "image/avif",
+  ".webp": "image/webp",
+  ".heic": "image/heic",
+  ".jp2": "image/jp2",
+  ".jpg": "image/jpeg",
+  ".png": "image/png",
+};
+
 async function serveStatic(pathname: string): Promise<Response> {
   if (pathname === "/" || pathname === "") pathname = "/index.html";
 
-  // Preview cache lives beside public/ and holds only generated AVIFs.
+  // Preview cache lives beside public/ and holds only generated previews.
   if (pathname.startsWith("/preview-cache/")) {
     const name = path.basename(pathname);
     const file = path.resolve(HERE, "..", ".preview-cache", name);
     try {
       const data = await readFile(file);
       return new Response(data, {
-        headers: { "content-type": "image/avif", "cache-control": "no-store" },
+        headers: {
+          "content-type": PREVIEW_MIME[path.extname(name).toLowerCase()]
+            ?? "application/octet-stream",
+          "cache-control": "no-store",
+        },
       });
     } catch {
       return new Response("not found", { status: 404 });

@@ -259,6 +259,19 @@ main {
 
 .field { margin-bottom: 20px; }
 .field > label { display: block; margin-bottom: 7px; font-weight: 600; font-size: 13px; }
+.field select {
+  width: 100%;
+  font: inherit;
+  font-size: 12px;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+.field select:disabled { opacity: .6; cursor: not-allowed; }
+#qualityOut { min-width: 12ch; }
 .hint { color: var(--muted); font-weight: 400; font-size: 11px; }
 
 .row { display: flex; align-items: center; gap: 10px; }

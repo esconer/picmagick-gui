@@ -6,7 +6,7 @@
  */
 import { readFileSync } from "node:fs";
 
-const files = ["public/app.js", "public/treelogic.js"];
+const files = ["public/app.js", "public/treelogic.js", "public/formatlogic.js"];
 let bad = 0;
 
 for (const file of files) {

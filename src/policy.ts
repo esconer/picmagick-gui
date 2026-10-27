@@ -2,7 +2,7 @@
  * Turns the user's selections into a concrete work list.
  *
  * Every file lands in exactly one bucket:
- *   convert  re-encode to AVIF
+ *   convert  re-encode to the selected output format
  *   copy     place verbatim into the output tree (preserves the original bytes)
  *   skip     leave alone
  */
@@ -10,6 +10,9 @@ import path from "node:path";
 import type { ScannedFile, ScanResult } from "./scan.ts";
 import { CONVERT_EXTS, RAW_EXTS, extOf } from "./paths.ts";
 import { CASE_INSENSITIVE, relTop } from "./platform.ts";
+import {
+  DEFAULT_FORMAT, FORMAT_SPECS, isOutputFormat, type OutputFormat,
+} from "./formats.ts";
 
 export type Policy = {
   /** Folder rel-paths that are fully excluded. */
@@ -40,7 +43,9 @@ export type Policy = {
   /** When a file falls below minSizeBytes, copy it verbatim instead of dropping it. */
   copyUndersized: boolean;
   includeRaw: boolean;
-  /** Several qualities produce name-qNN.avif; one produces name.avif. */
+  /** Selected output encoder. AVIF remains the default. */
+  outputFormat: OutputFormat;
+  /** Several qualities produce name-qNN.<ext>; one produces name.<ext>. */
   qualities: number[];
   flattenGif: boolean;
   heicSpeed: number;
@@ -55,6 +60,7 @@ export const DEFAULT_POLICY: Policy = {
   minSizeBytes: 0,
   copyUndersized: true,
   includeRaw: false,
+  outputFormat: DEFAULT_FORMAT,
   qualities: [60],
   flattenGif: false,
   // Typical measurements (three sample photos, q60):
@@ -121,6 +127,7 @@ export function normalisePolicy(p: Partial<Policy> | undefined): Policy {
   return {
     ...base,
     extEnabled,
+    outputFormat: isOutputFormat(base.outputFormat) ? base.outputFormat : DEFAULT_FORMAT,
     excludedFolders: cleanFolders(base.excludedFolders),
     includedFolders: cleanFolders(base.includedFolders),
     excludedFiles: cleanFiles(base.excludedFiles),
@@ -290,9 +297,22 @@ export function outputPathFor(
   quality?: number,
 ): string {
   const relDir = d.file.dir;
+
+  // Copy means "preserve the original bytes". It must also preserve the
+  // original filename/extension; renaming a copied JPEG to .avif/.webp/.jxl
+  // makes the output lie about its contents.
+  if (d.verdict === "copy") {
+    return relDir && relDir !== "."
+      ? path.join(destination, relDir, d.file.name)
+      : path.join(destination, d.file.name);
+  }
+
+  const spec = FORMAT_SPECS[policy.outputFormat];
   const stem = path.basename(d.file.name, path.extname(d.file.name));
   const multi = policy.qualities.length > 1;
-  const name = multi ? `${stem}-q${quality ?? policy.qualities[0]}.avif` : `${stem}.avif`;
+  const name = multi
+    ? `${stem}-q${quality ?? policy.qualities[0]}.${spec.ext}`
+    : `${stem}.${spec.ext}`;
   return relDir && relDir !== "."
     ? path.join(destination, relDir, name)
     : path.join(destination, name);

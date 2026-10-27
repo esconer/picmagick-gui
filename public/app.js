@@ -3,6 +3,7 @@ import {
   toggleFolder, collectRels, topLevelRels,
   isFileExcluded, toggleFile, clearFileOverridesUnder, countSelection, collectFiles,
 } from "./treelogic.js";
+import { nextDestinationOnFormatChange } from "./formatlogic.js";
 
 /**
  * Element lookup. Every id passed here exists in index.html, so the result is
@@ -86,6 +87,15 @@ let lastPreview = null;
 let currentJob = null;
 let es = null;
 
+/** Format metadata from /api/status, keyed by format id. */
+/** @type {Record<string, any>} */
+let formatSpecs = {};
+/** The format currently shown in the settings pane. */
+let currentFormat = "avif";
+/** Per-format quality/speed values, so switching back restores them. */
+/** @type {Record<string, {quality: number, speed: number}>} */
+let formatMemory = {};
+
 /**
  * Path rules come from the server so the browser never has to guess which OS
  * produced a `rel` value. Defaults match the original Windows-only behaviour.
@@ -97,6 +107,145 @@ const pathOptions = () => ({
 });
 const foldPath = (s) => (status?.caseInsensitive ?? true) ? s.toLowerCase() : s;
 const relBasename = (rel) => rel.split(pathSeparator()).pop();
+
+// ── output formats ─────────────────────────
+/** Is the selected format writable by the detected ImageMagick build? */
+function formatWritable(id) {
+  if (!status?.magick) return false;
+  const support = status.magick.formats?.[id];
+  if (support) return Boolean(support.writable);
+  // Older servers only report AVIF. Anything else is assumed available.
+  return id === "avif" ? Boolean(status.magick.avifWritable) : true;
+}
+
+/** The numeric slider readout for a format. */
+function qualityText(spec, q) {
+  if (spec.quality.kind === "compression") return `level ${Math.floor(q / 10)}`;
+  if (spec.quality.kind === "rate") {
+    const ratio = spec.quality.rateTable?.[String(q)];
+    return ratio ? `q${q} (${ratio}:1)` : `q${q}`;
+  }
+  return `q${q}`;
+}
+
+/** Minimal AVIF metadata for an older server that does not send formats. */
+function fallbackAvifSpec() {
+  return {
+    id: "avif",
+    label: "AVIF",
+    summary: "AV1 still image. The default.",
+    quality: {
+      kind: "lossy", min: 20, max: 90, step: 5, default: 60,
+      label: "Quality", hint: "AVIF q", note: "",
+    },
+    speed: {
+      min: 4, max: 9, step: 1, default: 6,
+      label: "Encoder speed", hint: "aom AV1", note: "", visible: true, labels: {},
+    },
+    compareQualities: [30, 50, 60, 70, 80],
+  };
+}
+
+/**
+ * Build the format dropdown from server metadata, restore the saved format,
+ * and seed per-format slider memory.
+ * @param {any} s
+ */
+function initFormats(s) {
+  const list = Array.isArray(s.formats) && s.formats.length
+    ? s.formats
+    : [fallbackAvifSpec()];
+  formatSpecs = {};
+  const select = $("outputFormat");
+  select.innerHTML = "";
+
+  for (const spec of list) {
+    formatSpecs[spec.id] = spec;
+    const option = document.createElement("option");
+    option.value = spec.id;
+    const available = formatWritable(spec.id);
+    option.disabled = !available;
+    option.textContent = `${spec.label} — ${spec.summary}` +
+      (available ? "" : " (not supported by this ImageMagick build)");
+    if (!available) {
+      const support = s.magick?.formats?.[spec.id];
+      option.title = `${spec.label} is '${support?.mode || "missing"}' - cannot encode`;
+    }
+    select.appendChild(option);
+  }
+
+  let id = typeof s.policy?.outputFormat === "string" ? s.policy.outputFormat : "avif";
+  if (!formatSpecs[id]) id = formatSpecs.avif ? "avif" : Object.keys(formatSpecs)[0];
+  if (id && !formatWritable(id)) {
+    toast(`${formatSpecs[id].label} is not supported by this ImageMagick build; using AVIF.`, true);
+    id = formatSpecs.avif ? "avif" : Object.keys(formatSpecs)[0];
+  }
+
+  for (const spec of list) {
+    formatMemory[spec.id] = {
+      quality: spec.quality.default,
+      speed: spec.speed.default,
+    };
+  }
+  if (formatSpecs[id]) {
+    formatMemory[id] = {
+      quality: s.policy?.qualities?.[0] ?? formatSpecs[id].quality.default,
+      speed: s.policy?.heicSpeed ?? formatSpecs[id].speed.default,
+    };
+  }
+
+  currentFormat = id;
+  select.value = id;
+  applyFormatUi(id, { restore: true });
+}
+
+/** Update every format-specific label, range, note, and slider value. */
+function applyFormatUi(id, { restore = false } = {}) {
+  const spec = formatSpecs[id];
+  if (!spec) return;
+  currentFormat = id;
+
+  $("qualityLabelText").textContent = spec.quality.label;
+  $("qualityHint").textContent = spec.quality.hint;
+  $("qualityNote").textContent = spec.quality.note;
+  $("speedLabelText").textContent = spec.speed.label;
+  $("speedHint").textContent = spec.speed.hint;
+  $("speedNote").textContent = spec.speed.note;
+
+  const q = $input("quality");
+  const speed = $input("heicSpeed");
+  q.min = String(spec.quality.min);
+  q.max = String(spec.quality.max);
+  q.step = String(spec.quality.step);
+  speed.min = String(spec.speed.min);
+  speed.max = String(spec.speed.max);
+  speed.step = String(spec.speed.step);
+
+  if (restore) {
+    const mem = formatMemory[id] ?? {
+      quality: spec.quality.default,
+      speed: spec.speed.default,
+    };
+    q.value = String(mem.quality);
+    speed.value = String(mem.speed);
+  }
+
+  $("qualityOut").textContent = qualityText(spec, q.valueAsNumber);
+  $("heicSpeedOut").textContent =
+    spec.speed.labels?.[String(speed.valueAsNumber)] ?? String(speed.valueAsNumber);
+  $("speedField").classList.toggle("hidden", !spec.speed.visible);
+  $("formatNote").textContent = [
+    spec.summary, spec.transparencyNote, spec.animationNote,
+  ].filter(Boolean).join(" ");
+}
+
+/** A running job keeps the format it started with. */
+function lockFormat(on) {
+  $("outputFormat").disabled = Boolean(on);
+  $("outputFormat").title = on
+    ? "The current run keeps the format it started with."
+    : "";
+}
 
 // ── boot ───────────────────────────────────
 async function boot() {
@@ -115,8 +264,9 @@ async function boot() {
     $("magickLine").textContent = status.magick
       ? shortVersion(status.magick.version)
       : "ImageMagick not found";
+    initFormats(status);
     document.querySelector(".dot").className = "dot " +
-      (status.magick?.avifWritable ? "ok" : "bad");
+      (formatWritable(currentFormat) ? "ok" : "bad");
     renderExtToggles(status.policy.extEnabled);
     updateRedundancy(status);
 
@@ -131,6 +281,7 @@ async function boot() {
     // it after a refresh instead of losing the run.
     if (status.liveJobId) {
       currentJob = status.liveJobId;
+      lockFormat(true);
       $("runbar").classList.remove("hidden");
       streamProgress(currentJob, true);
     }
@@ -643,12 +794,18 @@ const policy = () => ({
   minSizeBytes: Math.round($input("minsize").valueAsNumber * 1024 * 1024),
   copyUndersized: $input("copyUndersized").checked,
   includeRaw: $input("includeRaw").checked,
+  outputFormat: $("outputFormat").value,
   qualities: [$input("quality").valueAsNumber],
   flattenGif: $input("flattenGif").checked,
   heicSpeed: Number($("heicSpeed")?.value ?? 6),
 });
 
-$("quality").oninput = (/** @type {any} */ e) => { $("qualityOut").textContent = (/** @type {HTMLInputElement} */ (e.target)).value; schedulePreview(); };
+$("quality").oninput = (/** @type {any} */ e) => {
+  const spec = formatSpecs[currentFormat];
+  const q = Number((/** @type {HTMLInputElement} */ (e.target)).value);
+  $("qualityOut").textContent = spec ? qualityText(spec, q) : String(q);
+  schedulePreview();
+};
 $("minsize").oninput = (/** @type {any} */ e) => {
   $("minsizeOut").textContent = Number(e.target.value).toFixed(2) + " MB";
   schedulePreview();
@@ -667,7 +824,52 @@ $("jobs").oninput = (/** @type {any} */ e) => {
       .catch((e) => toast(e.message, true));
   }, 200);
 };
-$("heicSpeed").oninput = (/** @type {any} */ e) => { $("heicSpeedOut").textContent = (/** @type {HTMLInputElement} */ (e.target)).value; };
+$("heicSpeed").oninput = (/** @type {any} */ e) => {
+  const spec = formatSpecs[currentFormat];
+  const s = Number((/** @type {HTMLInputElement} */ (e.target)).value);
+  $("heicSpeedOut").textContent = spec?.speed.labels?.[String(s)] ?? String(s);
+};
+
+$("outputFormat").onchange = async () => {
+  const oldId = currentFormat;
+  const oldSpec = formatSpecs[oldId];
+  const newId = $("outputFormat").value;
+  const newSpec = formatSpecs[newId];
+  if (!oldSpec || !newSpec) return;
+
+  // Remember what the user chose for the format they are leaving.
+  formatMemory[oldId] = {
+    quality: $input("quality").valueAsNumber,
+    speed: $input("heicSpeed").valueAsNumber,
+  };
+
+  const oldDest = $("destination").value;
+  const nextDest = nextDestinationOnFormatChange(
+    oldDest,
+    $("sourceRoot").value,
+    oldSpec.destinationSuffix,
+    newSpec.destinationSuffix,
+    status?.caseInsensitive ?? true,
+  );
+
+  applyFormatUi(newId, { restore: true });
+  if (nextDest !== oldDest) {
+    $("destination").value = nextDest;
+    toast(`Destination updated to ${nextDest}`);
+  }
+
+  try {
+    await save();
+    await refreshPreview();
+  } catch (/** @type {any} */ e) {
+    // The server rejected the new pair (for example because the destination is
+    // inside the source). Put both controls back exactly as they were.
+    $("outputFormat").value = oldId;
+    $("destination").value = oldDest;
+    applyFormatUi(oldId, { restore: true });
+    toast(e.message, true);
+  }
+};
 for (const id of ["copyUndersized", "includeRaw", "flattenGif", "overwrite"]) {
   $(id).onchange = () => refreshPreview();
 }
@@ -771,9 +973,14 @@ $("btnEstimate").onclick = async () => {
   box.classList.remove("hidden");
   box.innerHTML = "<h4>Estimate</h4><p>Converting a sample…</p>";
   try {
-    const e = await api("estimate", { method: "POST", body: { sampleSize: 120, jobs: 4 } });
+    const e = await api("estimate", {
+      method: "POST",
+      body: { sampleSize: 120, jobs: 4, policy: policy() },
+    });
     box.innerHTML =
-      `<h4>Estimate <small style="color:var(--muted)">${e.sampleSize} files sampled</small></h4>` +
+      `<h4>Estimate <small style="color:var(--muted)">${e.sampleSize} files sampled` +
+      (e.format ? ` · ${esc(formatSpecs[e.format]?.shortLabel ?? e.format)}` : "") +
+      `</small></h4>` +
       `<table>` +
       `<tr><td class="k">measured ratio</td><td>${(e.ratio * 100).toFixed(1)}%</td></tr>` +
       `<tr><td class="k">mean output</td><td>${fmt(e.meanOutputBytes)}</td></tr>` +
@@ -866,7 +1073,12 @@ $("btnCompare").onclick = async () => {
     try {
       const r = await api("compare", {
         method: "POST",
-        body: { rel: samples[Number(a.dataset.i)].rel, qualities: [30, 50, 60, 70, 80] },
+        body: {
+          rel: samples[Number(a.dataset.i)].rel,
+          format: currentFormat,
+          qualities: formatSpecs[currentFormat]?.compareQualities
+            ?? [30, 50, 60, 70, 80],
+        },
       });
       const row = document.createElement("div");
       row.className = "cmp-row";
@@ -874,8 +1086,14 @@ $("btnCompare").onclick = async () => {
         `<figure class="cmp-cell"><img src="${src}" loading="lazy"><figcaption>${label}</figcaption></figure>`;
       row.innerHTML =
         cell(r.originalUrl, `original ${fmt(r.originalBytes)}`) +
-        r.variants.map((v) => cell(v.url, `q${v.quality} ${fmt(v.bytes)}`)).join("");
-      box.innerHTML = `<h4>${esc(r.rel)}</h4>`;
+        r.variants.map((v) =>
+          cell(v.url, `${esc(v.label ?? `q${v.quality}`)} ${fmt(v.bytes)}`)).join("");
+      const losslessNote = r.format === "png"
+        ? `<p class="note">PNG is lossless; all variants have identical pixels, only size differs.</p>`
+        : "";
+      box.innerHTML =
+        `<h4>${esc(r.rel)} <small style="color:var(--muted)">${esc(r.formatLabel ?? "")}</small></h4>` +
+        losslessNote;
       box.appendChild(row);
     } catch (/** @type {any} */ err) {
       box.innerHTML = `<h4>Compare</h4><p class="bad">${esc(err.message)}</p>`;
@@ -888,9 +1106,11 @@ $("btnManifests").onclick = async () => {
     const { manifests } = await api("manifests");
     if (!manifests.length) { openModal("Previous runs", "<p>No runs recorded yet.</p>"); return; }
     openModal("Previous runs", `<table>
-      <tr><th>Run</th><th>Converted</th><th>Copied</th><th>Size</th><th>When</th><th></th></tr>` +
+      <tr><th>Run</th><th>Format</th><th>Converted</th><th>Copied</th><th>Size</th><th>When</th><th></th></tr>` +
       manifests.map((m) =>
-        `<tr><td class="mono">${esc(m.id)}</td><td>${m.summary.converted}</td>` +
+        `<tr><td class="mono">${esc(m.id)}</td>` +
+        `<td>${esc(formatSpecs[m.outputFormat]?.shortLabel ?? (m.outputFormat ?? "avif"))}</td>` +
+        `<td>${m.summary.converted}</td>` +
         `<td>${m.summary.copied}</td><td>${fmt(m.summary.bytes)}</td>` +
         `<td>${new Date(m.createdAt).toLocaleString()}</td>` +
         `<td><button class="ghost small" onclick="undoRun('${esc(m.id)}')">Undo</button></td></tr>`
@@ -1318,6 +1538,7 @@ async function startRun(opts = {}) {
       },
     });
     currentJob = r.jobId;
+    lockFormat(true);
     $("runbar").classList.remove("hidden");
     $("btnStart").disabled = true;
     streamProgress(r.jobId);
@@ -1389,7 +1610,11 @@ function streamProgress(jobId, replay = false) {
         $("jobsOut").textContent = String(s.jobs);
       }
       if (s.state === "paused") setPaused(true);
-    }).catch(() => { $("runbar").classList.add("hidden"); });
+    }).catch(() => {
+      currentJob = null;
+      lockFormat(false);
+      $("runbar").classList.add("hidden");
+    });
   }
 
   es = new EventSource(`/api/stream/${jobId}`);
@@ -1429,6 +1654,8 @@ function streamProgress(jobId, replay = false) {
       es?.close();
       const s = p.summary;
       setPaused(false);
+      currentJob = null;
+      lockFormat(false);
       $("btnStart").disabled = false;
       $("btnStart").textContent = "Start conversion";
       $("btnPause").disabled = true;
@@ -1439,6 +1666,8 @@ function streamProgress(jobId, replay = false) {
       }
     } else if (p.type === "error") {
       es?.close();
+      currentJob = null;
+      lockFormat(false);
       toast(p.message, true);
       $("btnStart").disabled = false;
     }

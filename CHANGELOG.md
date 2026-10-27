@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- Added a seven-format output selector: JPEG XL, AVIF (still the default), WebP,
+  HEIC, JPEG 2000, JPEG, and PNG. Quality and encoder-speed sliders change
+  meaning per format, and formats the detected ImageMagick build cannot write
+  are disabled. The selected format locks during a run and is recorded in each
+  manifest and the **Runs** table.
+- The destination follows the selected format's suffix (`-avif` → `-jxl`, …)
+  only while it is still the previous format's default; a custom destination is
+  never rewritten.
+- Animated sources stay animated for JXL, AVIF, and WebP; HEIC, JPEG 2000,
+  JPEG, and PNG write the first frame. JPEG transparency is blended onto white.
+- Old-format outputs are never deleted automatically; **Sync** reports them as
+  orphans.
+- Fixed under-size files marked *copy* being renamed to `.avif` while still
+  containing the original JPEG/PNG bytes. Copies now keep their original
+  filename and extension.
+- AVIF command, defaults, paths, health wording, and animated-GIF handling are
+  unchanged; regression checks assert the exact pre-format behaviour.
 - Added six themes, selectable from the header: Midnight (default), Daylight,
   Ink, Sepia, Nord, and Rose, plus Auto to follow the system light/dark
   preference. The choice is stored in the browser and applied before first

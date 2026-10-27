@@ -3,6 +3,7 @@
  */
 import { stat } from "node:fs/promises";
 import { findMagick, freeSpace, type MagickInfo } from "./paths.ts";
+import { FORMAT_SPECS, type OutputFormat } from "./formats.ts";
 
 export type HealthCheck = {
   id: string;
@@ -23,11 +24,12 @@ export async function runHealthCheck(
   sourceRoot: string,
   destination: string,
   expectedOutputBytes: number,
+  format: OutputFormat = "avif",
 ): Promise<HealthReport> {
   const checks: HealthCheck[] = [];
   let magick: MagickInfo | null = null;
 
-  // --- magick presence and AVIF write support ---
+  // --- magick presence and selected-format write support ---
   try {
     magick = findMagick();
     checks.push({ id: "magick", label: "ImageMagick", status: "ok", detail: `${magick.version}` });
@@ -39,13 +41,20 @@ export async function runHealthCheck(
   }
 
   if (magick) {
+    const spec = FORMAT_SPECS[format];
+    const support = magick.formats[format];
+    const writable = support?.writable ?? false;
     checks.push({
-      id: "avif",
-      label: "AVIF write support",
-      status: magick.avifWritable ? "ok" : "fail",
-      detail: magick.avifWritable
-        ? `AVIF ${magick.avifMode} via libheif ${magick.libheif ?? "?"}`
-        : `AVIF is '${magick.avifMode}' - read only, cannot encode`,
+      id: format === "avif" ? "avif" : "format",
+      label: `${spec.label} write support`,
+      status: writable ? "ok" : "fail",
+      detail: writable
+        ? format === "avif"
+          ? `AVIF ${support.mode} via libheif ${support.detail ?? "?"}`
+          : `${spec.label} ${support.mode}${support.detail ? ` via ${support.detail}` : ""}`
+        : format === "avif"
+          ? `AVIF is '${support?.mode ?? ""}' - read only, cannot encode`
+          : `${spec.label} is '${support?.mode || "missing"}' - cannot encode`,
     });
   }
 

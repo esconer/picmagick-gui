@@ -13,6 +13,7 @@ import { outputPathFor, type Policy } from "./policy.ts";
 import { runPool } from "./convert.ts";
 import { spawn } from "node:child_process";
 import { stat } from "node:fs/promises";
+import { buildEncoderArgs, sourceArgFor, type OutputFormat } from "./formats.ts";
 
 export type Estimate = {
   sampleSize: number;
@@ -29,6 +30,8 @@ export type Estimate = {
   totalConvertBytes: number;
   method: "sampled" | "flat";
   durationMs: number;
+  /** Which output format this measurement describes. */
+  format: OutputFormat;
 };
 
 /** Even stride through the (folder-ordered) list so every folder gets represented. */
@@ -77,6 +80,7 @@ export async function estimateFromSample(opts: {
       projectedOutputBytes: totalCopyBytes,
       projectedSeconds: 0, totalConvert: 0, totalConvertBytes: 0,
       method: "flat", durationMs: 0,
+      format: opts.policy.outputFormat,
     };
   }
 
@@ -94,13 +98,20 @@ export async function estimateFromSample(opts: {
       const q = opts.policy.qualities[0];
       const out = outputPathFor(d, opts.sourceRoot, scratch, opts.policy, q);
       await mkdir(path.dirname(out), { recursive: true });
+      const srcArg = sourceArgFor(
+        d.file.abs,
+        d.file.ext,
+        opts.policy.outputFormat,
+        opts.policy.flattenGif,
+      );
       const code = await magick(
-        [
-          d.file.abs, "-auto-orient", "-colorspace", "sRGB",
-          "-quality", String(q),
-          "-define", `heic:speed=${opts.policy.heicSpeed}`,
-          `AVIF:${out}`,
-        ],
+        buildEncoderArgs({
+          srcArg,
+          out,
+          format: opts.policy.outputFormat,
+          quality: q,
+          speed: opts.policy.heicSpeed,
+        }),
         opts.magickPath,
       );
       if (code !== 0) return;
@@ -137,5 +148,6 @@ export async function estimateFromSample(opts: {
     totalConvertBytes,
     method: "sampled",
     durationMs: Date.now() - started,
+    format: opts.policy.outputFormat,
   };
 }

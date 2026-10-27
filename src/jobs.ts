@@ -289,6 +289,7 @@ private total = 0;
             destination: o.destination,
             quality: o.qualityLabel,
             heicSpeed: o.policy.heicSpeed,
+            outputFormat: o.policy.outputFormat,
             tool: "picmagick-gui",
           },
           this.results,

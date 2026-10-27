@@ -1,9 +1,10 @@
 # picmagick-gui
 
-A local browser UI for converting a photo library to AVIF derivatives without
-modifying the originals. It scans a folder, lets you include or exclude
-subfolders, previews the output against a storage budget, converts with
-ImageMagick, and records every run so it can be undone precisely.
+A local browser UI for converting a photo library to JPEG XL, AVIF, WebP, HEIC,
+JPEG 2000, JPEG, or PNG derivatives without modifying the originals. It scans a
+folder, lets you include or exclude subfolders, previews the output against a
+storage budget, converts with ImageMagick, and records every run so it can be
+undone precisely. AVIF remains the default.
 
 Everything runs on your machine. There is no account, no telemetry, and no
 upload. The only outbound requests are to GitHub for ImageMagick release checks
@@ -39,6 +40,10 @@ and, if you accept one, the ImageMagick download.
 - **A real plan before a long run.** Every file is classified as `convert`,
   `copy`, or `skip`, with a storage-budget projection and a measured sample
   estimate.
+- **Seven output formats.** JPEG XL, AVIF (default), WebP, HEIC, JPEG 2000,
+  JPEG, and PNG share one format selector. Quality and encoder-speed sliders
+  change meaning per format, and unsupported formats are disabled based on what
+  the detected ImageMagick build can actually write.
 - **Safe conversion.** ImageMagick runs in a worker pool. Pause is graceful,
   resume continues from the first unfinished file, and cancelling leaves valid
   completed files on disk.
@@ -68,30 +73,39 @@ and, if you accept one, the ImageMagick download.
 | Stop the server | **Quit** or close the minimised server window | **Quit** or `Ctrl+C` in the terminal |
 | CI | Windows check | Linux check |
 
-Linux on non-x86_64 architectures works when ImageMagick 7 with AVIF write
-support is installed. The automatic AppImage installer is x86_64 only.
-macOS is not officially supported.
+Linux on non-x86_64 architectures works when ImageMagick 7 with write support
+for the formats you use is installed. The automatic AppImage installer is
+x86_64 only. macOS is not officially supported.
 
 ## Requirements
 
 - [Bun](https://bun.sh) 1.1 or newer.
-- ImageMagick 7 with AVIF write support. Linux requires ImageMagick 7; Windows
-  should use ImageMagick 7 as well.
+- ImageMagick 7 with write support for the format you choose. Linux requires
+  ImageMagick 7; Windows should use ImageMagick 7 as well. AVIF write support is
+  required for the default format.
 - A current browser.
 - Enough free disk space for the output tree.
 
 The app has no separate build step. Bun runs the TypeScript server and serves
 the browser files directly.
 
-ImageMagick must be able to **write** AVIF. Check it with:
+ImageMagick must be able to **write** the selected format. Check the formats you
+plan to use with:
 
 ```bash
-magick -list format | grep AVIF    # Linux
-magick -list format | findstr AVIF # Windows
+magick -list format | grep -E "JXL|AVIF|WEBP|HEIC|JP2|JPEG|PNG"    # Linux
+magick -list format | findstr "JXL AVIF WEBP HEIC JP2 JPEG PNG"     # Windows
 ```
 
-A usable build shows `AVIF rw+`. A build showing `r` or `r--` can read AVIF but
-cannot encode it. The app's **Health** panel reports the same information.
+A writable format shows `w` in its mode, usually `rw+` or `rw-`. A build showing
+`r` or `r--` can read that format but cannot encode it. The app's **Health**
+panel reports the selected format, and the format dropdown disables anything the
+detected build cannot write.
+
+HEIC is the common exception: many ImageMagick builds read HEIC but cannot write
+it. HEIC stays in the dropdown but is disabled until a build reports `HEIC rw`.
+The bundled Windows build used for testing (`7.1.2-34`) has `HEIC r--`; use a
+build with a HEIC encoder, or choose another format, for HEIC output.
 
 If no usable ImageMagick build is found, the app can install a managed build
 into `imagemagick/` at the project root. On Linux, a build that cannot write
@@ -198,6 +212,7 @@ The first launch uses these defaults:
 |---|---|
 | Source folder | `~/Pictures`, or the home folder if that does not exist |
 | Destination | `<source>-avif` |
+| Output format | AVIF |
 | Budget | 10 GB |
 | Port | `5178` |
 
@@ -227,6 +242,12 @@ Source, destination, budget, and conversion policy are kept in server memory
 for the current session. Restarting the server restores these defaults; use the
 environment variables when you want a persistent starting point.
 
+When the destination is still the default for the previous format, changing the
+output format renames it to the new suffix, for example `Photos-avif` →
+`Photos-jxl`. A destination you typed or picked yourself is never rewritten.
+Existing outputs from the old format are not deleted; **Sync** reports them as
+orphans.
+
 ## Using the app
 
 1. **Choose the source and destination.** Type both paths, or use the
@@ -247,7 +268,7 @@ environment variables when you want a persistent starting point.
 
 4. **Review the plan.** Each file ends up in one bucket:
 
-   - `convert` — encode to AVIF
+   - `convert` — encode to the selected output format
    - `copy` — copy the original bytes unchanged
    - `skip` — leave it out
 
@@ -256,11 +277,15 @@ environment variables when you want a persistent starting point.
    encodes a real sample instead of guessing a compression ratio. **Duplicates**
    finds identical content by size and MD5. **Dates** reports how many files
    have a real EXIF capture date, a recovered date, or no date. **Compare q**
-   shows the original beside several AVIF quality levels.
+   shows the original beside several quality levels of the selected format.
 
-5. **Start the conversion.** Quality, parallel jobs, and encoder speed are in
-   the settings pane. **Overwrite** is opt-in; otherwise existing outputs are
-   skipped. **Only new** restricts a run to files that sync reports as pending.
+5. **Choose the output format and start the conversion.** The format selector
+   sits above the quality slider; AVIF is the default. Quality, encoder speed,
+   and parallel jobs are in the settings pane. The quality and speed labels,
+   ranges, and notes change with the format. **Overwrite** is opt-in; otherwise
+   existing outputs are skipped. **Only new** restricts a run to files that sync
+   reports as pending. The format selector locks while a run is in progress so
+   one run cannot mix formats.
 
 6. **Pause, resume, or cancel.** Pause is graceful: no new work is handed out,
    but encoders already in flight finish and land on disk. Resume continues the
@@ -282,6 +307,59 @@ stored in browser storage and applied before first paint, so reloading does not
 flash the default palette. Themes change presentation only; conversion
 behaviour is unchanged.
 
+### Output formats
+
+The format selector offers seven encoders. AVIF is the default and keeps the
+pre-format behaviour; the others are opt-in per run.
+
+| Format | Extension | Default quality | Encoder-speed control |
+|---|---|---|---|
+| JPEG XL | `.jxl` | q80 | speed 4–9 → `jxl:effort` 7–2; 6 = effort 5 |
+| AVIF | `.avif` | q60 | speed 4–9 → `heic:speed`; 6 is the default |
+| WebP | `.webp` | q80 | speed 4–9 → `webp:method` 6–1; 6 = method 4 |
+| HEIC | `.heic` | q60 | speed 4–9 → `heic:speed`; needs a build with a HEIC encoder |
+| JPEG 2000 | `.jp2` | q60 = 20:1 | hidden; the encoder has no useful speed knob here |
+| JPEG | `.jpg` | q85 | 4–5 = 4:4:4 progressive, 6 = 4:2:0 progressive, 7–9 = 4:2:0 baseline |
+| PNG | `.png` | q90 = zlib 9 | hidden; PNG is lossless |
+
+The quality slider is reused with a format-specific meaning:
+
+- **Lossy quality** (JXL, AVIF, WebP, HEIC, JPEG) is the encoder's quality
+  value. Higher means better quality and larger files.
+- **JPEG 2000** maps the slider to a compression ratio. q60 means 20:1; higher
+  quality means a lower ratio and a larger file. The readout shows both, for
+  example `q60 (20:1)`.
+- **PNG** is always lossless. The slider maps to the zlib compression level,
+  `floor(q / 10)`, so q90 is level 9. Higher levels compress more slowly and
+  usually produce smaller files.
+
+Transparency and animation follow the format:
+
+- JXL, AVIF, WebP, HEIC (when the encoder supports alpha), JPEG 2000, and PNG
+  keep alpha. JPEG has no alpha channel, so transparent areas are blended onto
+  white.
+- JXL, AVIF, and WebP can keep animation. **Flatten GIF** still forces frame 0.
+  HEIC, JPEG 2000, JPEG, and PNG write only the first frame.
+- Copied under-size files keep their original filename and extension. They are
+  byte-for-byte copies, not re-encoded outputs.
+
+Old-format outputs are never deleted automatically. After switching from JXL to
+AVIF, for example, **Sync** reports the existing `.jxl` files as orphans and
+leaves them alone. **Runs** records the format used by each manifest.
+
+#### AVIF compatibility
+
+The AVIF encoder arguments are unchanged from earlier releases:
+
+```bash
+magick <source> -auto-orient -colorspace sRGB -quality 60 -define heic:speed=6 AVIF:<output>
+```
+
+AVIF is still the default for a fresh session, still uses q60 and speed 6 out of
+the box, and still writes animated AVIF from animated GIFs unless **Flatten GIF**
+is enabled. The regression checks assert the exact AVIF command, output paths,
+and defaults.
+
 ### Pause and restart safety
 
 Resume never redoes a file. The server keeps a set of completed relative paths,
@@ -296,12 +374,13 @@ in the destination are never deleted automatically.
 
 | Setting | Default | Notes |
 |---|---|---|
-| Quality | `q60` | Best size/quality balance for archival derivatives |
+| Output format | AVIF | JXL, WebP, HEIC, JPEG 2000, JPEG, and PNG are selectable |
+| Quality | `q60` for AVIF | Per-format default: JXL 80, WebP 80, HEIC 60, JPEG 2000 60, JPEG 85, PNG 90 |
 | Resize | none | Full resolution kept for print and crop |
 | Metadata | kept | `-strip` deliberately omitted |
-| Encoder speed | `heic:speed=6` | About 4× faster than speed 5 for roughly 12% more bytes |
+| Encoder speed | `6` for AVIF/HEIC | JXL 6 = effort 5, WebP 6 = method 4; hidden for JPEG 2000 and PNG |
 | RAW | off | Toggle it on per run if you want it |
-| Animated GIF | preserved | ImageMagick 7.1.2 + libheif ≥1.20 writes animated AVIF; **Flatten GIF** is optional |
+| Animated GIF | preserved | JXL, AVIF, and WebP keep animation; **Flatten GIF** is optional. HEIC, JPEG 2000, JPEG, and PNG write frame 0 |
 | Under-size threshold | 0 MB | Convert every file; raising it copies or drops smaller files |
 | Parallel jobs | 2 | Safe for high-resolution images; raise it for ordinary photos |
 | Budget | 10 GB | Preview and planning target; it does not stop a run |
@@ -313,16 +392,17 @@ original size. Clear **Copy under-size files** to skip those files entirely.
 **Budget.** The budget panel reports what fits and which folders to drop. It is
 a planning aid, not a hard cap; a conversion can finish above the target.
 
-The converter runs the equivalent of:
+For AVIF, the converter runs the equivalent of:
 
 ```bash
 magick <source> -auto-orient -colorspace sRGB -quality 60 -define heic:speed=6 AVIF:<output>
 ```
 
-There is no `-strip`, no resize, and no `mogrify`. Originals are never written
-to.
+The other formats use the same read-only pipeline with their own encoder flags;
+see [Output formats](#output-formats) for the mapping. There is no `-strip`, no
+resize, and no `mogrify`. Originals are never written to.
 
-### Why quality 60 and encoder speed 6
+### Why AVIF quality 60 and encoder speed 6
 
 aom's AV1 encoder dominates the conversion time. Representative q60 timings for
 a 24 MP photo:
@@ -343,7 +423,9 @@ treats an empty output file as a failure regardless of the encoder's exit code.
 On startup the app searches for a usable ImageMagick build. Builds in
 `imagemagick/` in the project root are preferred. On Linux, the app only offers
 an automatic AppImage download when no system ImageMagick 7 with AVIF write
-support is available; it will not replace a working system build.
+support is available; it will not replace a working system build. AVIF is the
+default format, so AVIF write support remains the discovery criterion. Other
+formats are enabled only when the same build reports write support for them.
 
 If no usable build exists, the page shows an ImageMagick prompt. On Linux, a
 build that cannot write AVIF also triggers the AppImage offer. Accepting it
@@ -446,6 +528,9 @@ using the installed build and reports the check as offline.
     replacing the current install.
 11. **Quit** is refused while a conversion is running or paused, or while an
     ImageMagick download is in progress.
+12. Outputs from a previous format are never deleted automatically. **Sync**
+    reports them as orphans, and undo only removes files listed in the selected
+    run’s manifest.
 
 ## Troubleshooting
 
@@ -455,6 +540,17 @@ Run the format check shown in [Requirements](#requirements). On Linux, the
 distribution may still ship ImageMagick 6; use a current ImageMagick 7 package
 or the AppImage. On Windows, install the portable build when the page offers it, or unzip it
 into `imagemagick/` manually.
+
+### A format is disabled or read-only
+
+The format dropdown disables any format the detected build cannot write. Check
+the exact mode with `magick -list format` (see
+[Requirements](#requirements)). HEIC commonly appears as `HEIC r--` on builds
+without a HEIC encoder; install a build with HEIC write support or choose a
+different format. A format reported as `rw+` or `rw-` is writable.
+
+Switching away from a format does not delete its old outputs. **Sync** lists
+them as orphans so you can decide what to keep.
 
 ### Windows
 
@@ -510,6 +606,7 @@ Useful checks:
 | `bun run typecheck` | TypeScript check |
 | `bun run src/client.check.ts` | Undefined identifiers and missing element IDs in browser scripts |
 | `bun run src/platform.check.ts` | Cross-platform path, AppImage, and safety checks |
+| `bun run src/format.check.ts` | AVIF regression contract, format mappings, suffix and manifest checks |
 | `bun run check` | Run all of the above |
 
 GitHub Actions runs the checks on both Windows and Linux. The release workflow
@@ -522,6 +619,7 @@ src/
   server.ts       routes, static files, SSE, job registry
   scan.ts         one walk -> cached file list and directory tree
   policy.ts       selections -> convert | copy | skip
+  formats.ts      output-format registry, encoder args, slider mappings
   convert.ts      ImageMagick worker pool, cancel, per-file results
   jobs.ts         run lifecycle and progress events
   estimate.ts     stratified sample -> measured size and time projection
@@ -540,6 +638,7 @@ public/
   index.html      layout
   app.js          UI wiring
   treelogic.js    pure tree logic
+  formatlogic.js  pure destination-suffix logic
   style.css       styling and theme palettes
 imagemagick/      managed ImageMagick (downloaded or placed by hand)
 start.bat         Windows launcher
@@ -553,7 +652,9 @@ large and is fetched on demand.
 
 The browser talks to a small JSON API on the same local server. It is internal,
 has no authentication, and should only be reachable on `127.0.0.1`. POST routes
-expect a JSON object; send `{}` when there are no fields.
+expect a JSON object; send `{}` when there are no fields. Conversion routes use
+the selected `outputFormat`; `/api/run` and `/api/compare` reject a format the
+detected ImageMagick build cannot write.
 
 | Method | Route | Purpose |
 |---|---|---|
