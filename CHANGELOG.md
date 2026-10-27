@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added six themes, selectable from the header: Midnight (default), Daylight,
+  Ink, Sepia, Nord, and Rose, plus Auto to follow the system light/dark
+  preference. The choice is stored in the browser and applied before first
+  paint.
 - Fixed the `Malformed JSON body` toast after a page reload or EXIF date audit by
   sending a JSON body with bodyless POST requests.
 - Fixed killed or failed AVIF encodes being reported as skipped and leaving a

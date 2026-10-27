@@ -52,6 +52,9 @@ and, if you accept one, the ImageMagick download.
   portable build on Windows or the official AppImage on Linux.
 - **First-class Windows and Linux support.** Native paths, folder pickers, and
   launchers on both platforms.
+- **Six built-in themes.** Midnight, Daylight, Ink, Sepia, Nord, and Rose, plus
+  Auto to follow the system light/dark preference. The choice is remembered in
+  the browser and applied before first paint.
 
 ## Platform support
 
@@ -268,6 +271,15 @@ environment variables when you want a persistent starting point.
    reports new, changed, and up-to-date files, plus orphan outputs without
    matching sources. **Runs** lists previous manifests and provides undo.
 
+### Appearance
+
+The **Theme** picker in the header switches between Midnight (the default),
+Daylight, Ink, Sepia, Nord, and Rose. **Auto** follows the operating system's
+light/dark preference and updates live when the system changes. The choice is
+stored in browser storage and applied before first paint, so reloading does not
+flash the default palette. Themes change presentation only; conversion
+behaviour is unchanged.
+
 ### Pause and restart safety
 
 Resume never redoes a file. The server keeps a set of completed relative paths,
@@ -282,23 +294,22 @@ in the destination are never deleted automatically.
 
 | Setting | Default | Notes |
 |---|---|---|
-| Quality | `q60` | Good size/quality balance for archival derivatives |
+| Quality | `q60` | Best size/quality balance for archival derivatives |
 | Resize | none | Full resolution kept for print and crop |
 | Metadata | kept | `-strip` deliberately omitted |
-| Encoder speed | `heic:speed=6` | Much faster than 5 for a small size increase |
-| RAW | off | Toggle it on per-run if you want it |
-| Animated GIF | preserved | ImageMagick 7.1.2 + libheif ≥1.20 writes animated AVIF |
-| Min size | 0 MB | Convert every file; raise it to copy or drop small files |
-| Jobs | 2 | Safe default for high-resolution images; raise it for ordinary photos |
-| Quality | 60 | AVIF quality slider range is 20–90 |
-| Resize | none | Full resolution is kept |
-| Metadata | kept | `-strip` is deliberately omitted |
-| Encoder speed | 6 | `heic:speed=6` |
-| RAW | off | Enable per run if needed |
-| Animated GIF | preserved | **Flatten GIF** is optional |
-| Minimum size | 1 MB | Smaller files are copied by default |
-| Parallel jobs | 9 | Each job is one thread |
-| Budget | 10 GB | Preview and planning target |
+| Encoder speed | `heic:speed=6` | About 4× faster than speed 5 for roughly 12% more bytes |
+| RAW | off | Toggle it on per run if you want it |
+| Animated GIF | preserved | ImageMagick 7.1.2 + libheif ≥1.20 writes animated AVIF; **Flatten GIF** is optional |
+| Under-size threshold | 0 MB | Convert every file; raising it copies or drops smaller files |
+| Parallel jobs | 2 | Safe for high-resolution images; raise it for ordinary photos |
+| Budget | 10 GB | Preview and planning target; it does not stop a run |
+
+**Under-size files.** The default threshold is `0`, so every file is converted.
+Raising it saves time, not space: a file below the threshold is copied at its
+original size. Clear **Copy under-size files** to skip those files entirely.
+
+**Budget.** The budget panel reports what fits and which folders to drop. It is
+a planning aid, not a hard cap; a conversion can finish above the target.
 
 The converter runs the equivalent of:
 
@@ -372,9 +383,6 @@ Linux requires ImageMagick 7. The app looks in the project’s `imagemagick/`
 folder, then common locations such as `~/.local/bin`, `/usr/local/bin`,
 `/usr/bin`, `/snap/bin`, `/opt/ImageMagick/bin`, and finally `PATH`.
 
-**Under-size slider.** The default is `0`, so every file is converted. Raising
-it saves *time*, not space - a skipped file is copied at its original size.
-Untick "copy under-size files" if you would rather drop them entirely.
 If the system build is missing or cannot write AVIF, the app can install the
 official x86_64 AppImage. The `gcc` build is preferred because it has the widest
 glibc compatibility; the `clang` build is used when no `gcc` asset is available.
@@ -391,8 +399,6 @@ imagemagick/
   ImageMagick-7.1.2-34-gcc-x86_64.AppImage
 ```
 
-**Cloud storage budget planning.** Set a target and the panel tells you what
-fits, what does not, and which folders to drop to get under it.
 A manually downloaded AppImage also works. Make it executable, place it in
 `imagemagick/`, and press **Check again**. The newest AppImage in that folder is
 discovered by filename.
@@ -532,7 +538,7 @@ public/
   index.html      layout
   app.js          UI wiring
   treelogic.js    pure tree logic
-  style.css       styling
+  style.css       styling and theme palettes
 imagemagick/      managed ImageMagick (downloaded or placed by hand)
 start.bat         Windows launcher
 start.sh          Linux launcher
