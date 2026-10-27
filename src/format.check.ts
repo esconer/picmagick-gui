@@ -403,6 +403,8 @@ await check("manifest writes the format and reads old manifests", async () => {
       [],
     );
     assert.equal(written.outputFormat, "jxl");
+    assert.deepEqual(written.quality, [80]);
+    assert.equal(written.heicSpeed, 6);
     assert.equal((await readManifest(path.join(out, ".picmagic-manifest-run-format-check.json"))).outputFormat, "jxl");
 
     // A manifest from before this feature has no outputFormat. Reading it must
@@ -475,6 +477,20 @@ await check("sync follows the selected format and reports old outputs as orphans
       [decision], source, destinationRoot, withPolicy({ outputFormat: "jxl" }),
     );
     assert.equal(report.entries[0].state, "upToDate");
+
+    // The extension is the only difference: repeat for two more formats.
+    for (const format of ["webp", "jp2"] as const) {
+      const outPath = path.join(destinationRoot, `a.${format}`);
+      await writeFile(outPath, `${format}-bytes`);
+      await utimes(outPath, newer, newer);
+      const next = await analyseSync(
+        [decision], source, destinationRoot, withPolicy({ outputFormat: format }),
+      );
+      assert.equal(next.entries[0].state, "upToDate", format);
+      assert.equal(
+        next.orphans.some((o) => path.basename(o.out) === "a.avif"), true, format,
+      );
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }
