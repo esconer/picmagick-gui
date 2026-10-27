@@ -44,13 +44,13 @@
 </header>
 
 <main>
-  <!-- ─────────────── left: source + folders ─────────────── -->
+  <!-- ─────────────── left: source + files/folders ─────────────── -->
   <section class="pane pane-folders">
     <div class="pane-head">
-      <h2>Folders</h2>
+      <h2>Files &amp; folders</h2>
       <div class="pane-head-actions">
-        <button id="btnAll" class="ghost folder-action">All</button>
-        <button id="btnNone" class="ghost folder-action">None</button>
+        <button id="btnAll" class="ghost folder-action" title="Select every file">All</button>
+        <button id="btnNone" class="ghost folder-action" title="Deselect every file">None</button>
       </div>
     </div>
 
@@ -65,6 +65,17 @@
         <span id="sourceInfo" class="muted"></span>
       </div>
       <p id="sourceError" class="bad hidden"></p>
+    </div>
+
+    <div class="tree-tools">
+      <input id="treeFilter" type="search" spellcheck="false"
+             placeholder="Filter files &amp; folders…"
+             aria-label="Filter files and folders">
+      <div class="tree-tools-actions">
+        <button id="btnExpandAll" class="ghost small" title="Expand all folders">Expand</button>
+        <button id="btnCollapseAll" class="ghost small" title="Collapse all folders">Collapse</button>
+      </div>
+      <span id="treeFilterInfo" class="tree-filter-info muted hidden" aria-live="polite"></span>
     </div>
 
     <div id="tree" class="tree">

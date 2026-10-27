@@ -65,6 +65,117 @@ export function hasExcludedDescendant(node, ex, inc = new Set(), opts = {}) {
 }
 
 /**
+ * Is one file excluded, taking both folder and file rules into account?
+ *
+ * Every set passed here must already be folded with `excludedLower`, exactly
+ * like `isFullyExcluded`. The most specific rule wins: an explicit file include
+ * survives an excluded folder, and an explicit file exclusion drops a file from
+ * an included folder.
+ *
+ * @param {string} rel
+ * @param {Set<string>} exFolders
+ * @param {Set<string>} incFolders
+ * @param {Set<string>} exFiles
+ * @param {Set<string>} incFiles
+ * @param {{sep?: string, caseInsensitive?: boolean}} [opts]
+ */
+export function isFileExcluded(rel, exFolders, incFolders, exFiles, incFiles, opts = {}) {
+  const { caseInsensitive } = pathOptions(opts);
+  const key = fold(rel, caseInsensitive);
+  if (incFiles.has(key)) return false;
+  if (exFiles.has(key)) return true;
+  return isFullyExcluded(rel, exFolders, incFolders, opts);
+}
+
+/**
+ * Toggle one file without disturbing any other choice.
+ *
+ * The caller only ever stores the file the user touched; folder rules still
+ * cover everything else. The opposite set is cleared for the same path so a
+ * file cannot end up both included and excluded.
+ *
+ * @param {string} rel
+ * @param {boolean} nowExcluded
+ * @param {Set<string>} [excludedFiles]
+ * @param {Set<string>} [includedFiles]
+ * @param {{sep?: string, caseInsensitive?: boolean}} [opts]
+ * @returns {{excludedFiles: Set<string>, includedFiles: Set<string>}}
+ */
+export function toggleFile(rel, nowExcluded, excludedFiles = new Set(), includedFiles = new Set(), opts = {}) {
+  const { caseInsensitive } = pathOptions(opts);
+  const key = fold(rel, caseInsensitive);
+  const ex = new Set(excludedFiles);
+  const inc = new Set(includedFiles);
+
+  for (const e of [...ex]) if (fold(e, caseInsensitive) === key) ex.delete(e);
+  for (const e of [...inc]) if (fold(e, caseInsensitive) === key) inc.delete(e);
+
+  if (nowExcluded) ex.add(rel);
+  else inc.add(rel);
+  return { excludedFiles: ex, includedFiles: inc };
+}
+
+/**
+ * Drop file-level overrides at or below a folder. A folder checkbox means
+ * "all of this" or "none of this", so any per-file choice underneath it is no
+ * longer meaningful once the folder itself is toggled.
+ *
+ * @param {string} rel
+ * @param {Set<string>} excludedFiles
+ * @param {Set<string>} includedFiles
+ * @param {{sep?: string, caseInsensitive?: boolean}} [opts]
+ * @returns {{excludedFiles: Set<string>, includedFiles: Set<string>}}
+ */
+export function clearFileOverridesUnder(rel, excludedFiles, includedFiles, opts = {}) {
+  const { sep, caseInsensitive } = pathOptions(opts);
+  const key = fold(rel, caseInsensitive);
+  const atOrBelow = (p) => {
+    const k = fold(p, caseInsensitive);
+    return k === key || k.startsWith(key + sep);
+  };
+  return {
+    excludedFiles: new Set([...excludedFiles].filter((p) => !atOrBelow(p))),
+    includedFiles: new Set([...includedFiles].filter((p) => !atOrBelow(p))),
+  };
+}
+
+/**
+ * Count every file in a node and how many are selected.
+ *
+ * Counts are computed once per render so a folder checkbox can show
+ * checked / indeterminate / unchecked without re-walking the subtree for every
+ * row. `out` maps a folder rel to its {total, selected} pair.
+ *
+ * @param {any} node
+ * @param {(file: any) => boolean} isSelected
+ * @param {Map<string, {total: number, selected: number}>} [out]
+ * @returns {{total: number, selected: number}}
+ */
+export function countSelection(node, isSelected, out = new Map()) {
+  let total = 0;
+  let selected = 0;
+  for (const f of node.files ?? []) {
+    total++;
+    if (isSelected(f)) selected++;
+  }
+  for (const c of node.children ?? []) {
+    const child = countSelection(c, isSelected, out);
+    total += child.total;
+    selected += child.selected;
+  }
+  out.set(node.rel, { total, selected });
+  return { total, selected };
+}
+
+/** Every file in a tree, including files sitting directly in the root. */
+export function collectFiles(node) {
+  return [
+    ...(node.files ?? []),
+    ...(node.children ?? []).flatMap((c) => collectFiles(c)),
+  ];
+}
+
+/**
  * Toggle one folder without disturbing any other choice.
  *
  * The original rebuilt the entire set from a single toggle, so unchecking a

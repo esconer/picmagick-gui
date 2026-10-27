@@ -96,6 +96,28 @@ await check("groups by the platform top-level folder", () => {
   assert.equal(preview.byFolder[0].rel, "album");
 });
 
+await check("file selections override folder selections", () => {
+  const inside = scanned(["album", "sub", "a.jpg"]);
+  const outside = scanned(["album", "other", "b.jpg"]);
+  const scan = { files: [inside, outside] } as unknown as ScanResult;
+
+  // An included file survives an excluded folder.
+  let preview = applyPolicy(scan, {
+    ...DEFAULT_POLICY,
+    excludedFolders: [nativeRel("album")],
+    includedFiles: [inside.rel],
+  });
+  assert.deepEqual(preview.convert.map((d) => d.file.rel), [inside.rel]);
+
+  // An excluded file stays out even when its folder is included.
+  preview = applyPolicy(scan, {
+    ...DEFAULT_POLICY,
+    includedFolders: [nativeRel("album")],
+    excludedFiles: [outside.rel],
+  });
+  assert.deepEqual(preview.convert.map((d) => d.file.rel), [inside.rel]);
+});
+
 await check("builds native output paths", () => {
   const destination = path.resolve("platform-check-out");
   const decision: Decision = {
@@ -242,6 +264,62 @@ await check("toggling keeps ancestor exclusions and adds include overrides", () 
   r = tree.toggleFolder(null, r.excluded, nativeRel("album"), false, r.included, opts);
   assert.equal(r.excluded.size, 0);
   assert.equal(r.included.size, 0);
+});
+
+await check("file rules are more specific than folder rules", () => {
+  const exFolders = tree.excludedLower(new Set([nativeRel("album")]), CASE_INSENSITIVE);
+  const exFiles = tree.excludedLower(new Set([nativeRel("album", "sub", "a.jpg")]), CASE_INSENSITIVE);
+  const incFiles = tree.excludedLower(new Set([nativeRel("album", "sub", "b.jpg")]), CASE_INSENSITIVE);
+
+  // Explicit include survives the excluded folder.
+  assert.equal(
+    tree.isFileExcluded(nativeRel("album", "sub", "b.jpg"), exFolders, new Set(), exFiles, incFiles, opts),
+    false,
+  );
+  // Explicit exclude stays out.
+  assert.equal(
+    tree.isFileExcluded(nativeRel("album", "sub", "a.jpg"), exFolders, new Set(), exFiles, incFiles, opts),
+    true,
+  );
+  // No file rule: the folder exclusion still applies.
+  assert.equal(
+    tree.isFileExcluded(nativeRel("album", "sub", "c.jpg"), exFolders, new Set(), exFiles, incFiles, opts),
+    true,
+  );
+});
+
+await check("toggling one file clears its opposite rule", () => {
+  let r = tree.toggleFile(nativeRel("album", "a.jpg"), true, new Set(), new Set(), opts);
+  assert.equal(r.excludedFiles.size, 1);
+  assert.equal(r.includedFiles.size, 0);
+
+  r = tree.toggleFile(nativeRel("album", "a.jpg"), false, r.excludedFiles, r.includedFiles, opts);
+  assert.equal(r.excludedFiles.size, 0);
+  assert.equal(r.includedFiles.size, 1);
+});
+
+await check("folder toggles clear file overrides underneath", () => {
+  const exFiles = new Set([nativeRel("album", "a.jpg"), nativeRel("other", "b.jpg")]);
+  const incFiles = new Set([nativeRel("album", "sub", "c.jpg")]);
+  const r = tree.clearFileOverridesUnder(nativeRel("album"), exFiles, incFiles, opts);
+  assert.deepEqual([...r.excludedFiles], [nativeRel("other", "b.jpg")]);
+  assert.equal(r.includedFiles.size, 0);
+});
+
+await check("selection counts cover nested files", () => {
+  const node = {
+    rel: nativeRel("album"),
+    files: [scanned(["album", "a.jpg"]), scanned(["album", "b.jpg"])],
+    children: [{
+      rel: nativeRel("album", "sub"),
+      files: [scanned(["album", "sub", "c.jpg"])],
+      children: [],
+    }],
+  };
+  const counts = new Map<string, { total: number; selected: number }>();
+  const root = tree.countSelection(node, (f) => f.name !== "b.jpg", counts);
+  assert.deepEqual(root, { total: 3, selected: 2 });
+  assert.deepEqual(counts.get(nativeRel("album", "sub")), { total: 1, selected: 1 });
 });
 
 await check("tree logic also handles explicit Windows-style paths", () => {

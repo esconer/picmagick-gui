@@ -190,6 +190,28 @@ main {
 .tree { flex: 1 1 auto; overflow: auto; padding: 6px 0 12px; }
 .empty { color: var(--muted); padding: 20px 14px; text-align: center; }
 
+.tree-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  flex: 0 0 auto;
+}
+.tree-tools input[type=search] { flex: 1 1 120px; min-width: 0; }
+.tree-tools-actions { display: flex; gap: 4px; }
+.tree-tools-actions button { padding: 3px 7px; font-size: 11px; }
+.tree-filter-info { flex-basis: 100%; font-size: 11px; }
+.tree-group-label {
+  padding: 8px 12px 3px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: var(--label-tracking);
+  color: var(--muted);
+}
+
 .node {
   display: flex; align-items: center; gap: 7px;
   padding: 3px 12px 3px 0;
@@ -205,12 +227,32 @@ main {
 .node-caret { width: 14px; text-align: center; color: var(--muted); flex: 0 0 auto; font-size: 10px; }
 .node-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .node-size { color: var(--muted); font-family: var(--mono); font-size: 11px; flex: 0 0 auto; }
+.node-count { color: var(--muted); font-family: var(--mono); font-size: 10px; flex: 0 0 auto; }
 .node-badge {
   font-size: 10px; padding: 0 5px; border-radius: 3px;
   background: var(--badge-bg); color: var(--muted); flex: 0 0 auto;
 }
 .node-badge.raw { background: var(--badge-raw-bg); color: var(--warn); }
 .node-badge.dead { background: var(--badge-dead-bg); color: var(--bad); }
+
+.node.file { cursor: default; }
+.node.file .node-name { cursor: pointer; }
+.node.file .file-ext {
+  flex: 0 0 auto;
+  width: 30px;
+  padding: 1px 0;
+  border-radius: 3px;
+  background: var(--badge-bg);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 600;
+  text-align: center;
+  text-transform: uppercase;
+}
+.node.file .file-ext.raw { background: var(--badge-raw-bg); color: var(--warn); }
+.node.file .file-ext.video { background: var(--accent-soft); color: var(--accent); }
+.node.file .file-ext.other { opacity: .65; }
 
 /* ── settings ──────────────────────────────── */
 .settings-scroll, .plan-scroll { flex: 1 1 auto; overflow: auto; padding: 14px; }
@@ -224,7 +266,7 @@ main {
 .row input[type=text] { flex: 1 1 auto; }
 
 input[type=range] { flex: 1 1 auto; accent-color: var(--accent); min-width: 0; }
-input[type=text] {
+input[type=text], input[type=search] {
   font-family: var(--mono); font-size: 12px;
   background: var(--bg); color: var(--text);
   border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px;

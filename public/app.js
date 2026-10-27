@@ -1,6 +1,7 @@
 import {
   excludedLower, isFullyExcluded, hasExcludedDescendant,
   toggleFolder, collectRels, topLevelRels,
+  isFileExcluded, toggleFile, clearFileOverridesUnder, countSelection, collectFiles,
 } from "./treelogic.js";
 
 /**
@@ -71,6 +72,12 @@ let lastScan = null;
 let excluded = new Set();
 /** Folders pulled back in despite an excluded ancestor. Include beats exclude. */
 let included = new Set();
+/** Individual files the user unchecked, overriding their folder's state. */
+let excludedFiles = new Set();
+/** Individual files the user checked inside an excluded folder. */
+let includedFiles = new Set();
+/** Current filter text for the file/folder tree. Empty means "show all". */
+let filterQuery = "";
 /** Which folders the user has opened, so a re-render does not collapse the tree. */
 let expanded = new Set();
 /** @type {any} */
@@ -95,6 +102,12 @@ const relBasename = (rel) => rel.split(pathSeparator()).pop();
 async function boot() {
   try {
     status = await api("status");
+    // Restore the selection the server already holds, so a page refresh does
+    // not silently reset folder and file choices.
+    excluded = new Set(status.policy?.excludedFolders ?? []);
+    included = new Set(status.policy?.includedFolders ?? []);
+    excludedFiles = new Set(status.policy?.excludedFiles ?? []);
+    includedFiles = new Set(status.policy?.includedFiles ?? []);
     $("destination").value = status.destination;
     $("sourceRoot").value = status.sourceRoot;
     $("budgetOut").textContent = (status.budgetBytes / 1024 ** 3).toFixed(0) + " GB";
@@ -185,7 +198,11 @@ async function applySource() {
     const r = await api("scan", { method: "POST", body: { sourceRoot: src } });
     excluded = new Set();
     included = new Set();
+    excludedFiles = new Set();
+    includedFiles = new Set();
     expanded = new Set();
+    filterQuery = "";
+    $input("treeFilter").value = "";
     renderTree(r);
     await refreshPreview();
 
@@ -223,21 +240,96 @@ $("sourceRoot").addEventListener("keydown", (e) => {
 $("btnScan").onclick = applySource;
 
 // ── scan ───────────────────────────────────
+/** Locale-aware, number-aware name ordering, used for folders and files. */
+const byName = (a, b) =>
+  a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+
+/** Folded sets shared by every row in one render pass. */
+function treeContext() {
+  const opts = pathOptions();
+  const ci = opts.caseInsensitive;
+  return {
+    opts,
+    ex: excludedLower(excluded, ci),
+    inc: excludedLower(included, ci),
+    exFiles: excludedLower(excludedFiles, ci),
+    incFiles: excludedLower(includedFiles, ci),
+    q: filterQuery.trim().toLowerCase(),
+    counts: new Map(),
+  };
+}
+
 function renderTree(r) {
   lastScan = r;
   tree = r.tree;
   const box = $("tree");
+  const scrollTop = box.scrollTop;
+  const focusedFile = document.activeElement?.closest?.("[data-file-rel]")?.dataset.fileRel ?? null;
   box.innerHTML = "";
-  // Drop exclusions that no longer exist under the new root.
+
+  // Drop selections that no longer exist under the new root.
   const existing = new Set(collectRels(tree).map(foldPath));
   excluded = new Set([...excluded].filter((e) => existing.has(foldPath(e))));
   included = new Set([...included].filter((e) => existing.has(foldPath(e))));
+  const existingFiles = new Set(collectFiles(tree).map((f) => foldPath(f.rel)));
+  excludedFiles = new Set([...excludedFiles].filter((f) => existingFiles.has(foldPath(f))));
+  includedFiles = new Set([...includedFiles].filter((f) => existingFiles.has(foldPath(f))));
 
-  for (const child of tree.children) box.appendChild(nodeEl(child));
+  const ctx = treeContext();
+  countSelection(
+    tree,
+    (f) => !isFileExcluded(f.rel, ctx.ex, ctx.inc, ctx.exFiles, ctx.incFiles, ctx.opts),
+    ctx.counts,
+  );
 
+  const rootFiles = visibleFiles(tree.files, ctx, false);
+  if (rootFiles.length) {
+    const label = document.createElement("div");
+    label.className = "tree-group-label";
+    label.textContent = "Files in source root";
+    box.appendChild(label);
+    for (const f of rootFiles) box.appendChild(fileEl(f, 0, ctx));
+  }
+
+  for (const child of [...tree.children].sort(byName)) {
+    const el = nodeEl(child, ctx, false);
+    if (el) box.appendChild(el);
+  }
+
+  if (!box.children.length) {
+    box.innerHTML = `<p class="empty">${ctx.q ? "No files match this filter." : "No files found under this folder."}</p>`;
+  }
+
+  const selected = ctx.counts.get(tree.rel)?.selected ?? 0;
   $("scanSummary").innerHTML =
     `${r.totals.count.toLocaleString()} files · ${fmt(r.totals.bytes)} · ` +
-    `${r.totals.imageCount.toLocaleString()} convertible · ${(r.durationMs / 1000).toFixed(1)}s`;
+    `${selected.toLocaleString()} selected · ${(r.durationMs / 1000).toFixed(1)}s`;
+
+  updateFilterInfo(ctx);
+  box.scrollTop = scrollTop;
+
+  // Re-rendering replaces the checkbox the user just clicked; put focus back
+  // so keyboard selection does not jump to the top of the page every time.
+  if (focusedFile) {
+    for (const row of box.querySelectorAll("[data-file-rel]")) {
+      if (row.dataset.fileRel === focusedFile) {
+        /** @type {HTMLInputElement|null} */ (row.querySelector("input"))?.focus();
+        break;
+      }
+    }
+  }
+}
+
+function updateFilterInfo(ctx) {
+  const el = $("treeFilterInfo");
+  if (!ctx.q) {
+    el.classList.add("hidden");
+    el.textContent = "";
+    return;
+  }
+  const matches = collectFiles(tree).filter((f) => f.rel.toLowerCase().includes(ctx.q)).length;
+  el.classList.remove("hidden");
+  el.textContent = `${matches.toLocaleString()} matching file${matches === 1 ? "" : "s"}`;
 }
 
 /** Re-render from the cached scan. Never touches the disk. */
@@ -260,33 +352,152 @@ function setExcluded(rel, on) {
   const r = toggleFolder(tree, excluded, rel, on, included, pathOptions());
   excluded = r.excluded;
   included = r.included;
+  // A folder click means "all" or "none", so per-file choices underneath it
+  // are no longer meaningful.
+  const files = clearFileOverridesUnder(rel, excludedFiles, includedFiles, pathOptions());
+  excludedFiles = files.excludedFiles;
+  includedFiles = files.includedFiles;
   // Auto-expand so you can see what you just changed.
   if (on) expanded.add(rel);
   refreshTree();
   refreshPreview();
 }
 
+/** @param {any} file */
+function setFileSelected(file, on) {
+  const r = toggleFile(file.rel, !on, excludedFiles, includedFiles, pathOptions());
+  excludedFiles = r.excludedFiles;
+  includedFiles = r.includedFiles;
+  refreshTree();
+  refreshPreview();
+}
+
+/** Does any file under this folder match the current filter? */
+function nodeMatches(node, q) {
+  if (!q) return true;
+  if (node.rel.toLowerCase().includes(q)) return true;
+  if (node.files.some((f) => f.rel.toLowerCase().includes(q))) return true;
+  return node.children.some((c) => nodeMatches(c, q));
+}
+
+/**
+ * Files visible under the current filter. When an ancestor folder matched, all
+ * of its files stay visible so a search for a folder behaves like opening it.
+ */
+function visibleFiles(files, ctx, ancestorMatched) {
+  const list = !ctx.q || ancestorMatched
+    ? files
+    : files.filter((f) => f.rel.toLowerCase().includes(ctx.q));
+  return [...list].sort(byName);
+}
+
+/** One row for a file, with a checkbox that controls only that file. */
+function fileEl(f, depth, ctx) {
+  const selected = !isFileExcluded(
+    f.rel, ctx.ex, ctx.inc, ctx.exFiles, ctx.incFiles, ctx.opts,
+  );
+
+  const row = document.createElement("div");
+  row.className = "node file" + (selected ? "" : " excluded");
+  row.dataset.fileRel = f.rel;
+  row.style.paddingLeft = (8 + depth * 14) + "px";
+  row.title = f.rel;
+
+  const cb = document.createElement("input");
+  cb.type = "checkbox";
+  cb.checked = selected;
+  cb.setAttribute("aria-label", `Include ${f.name}`);
+  cb.onchange = () => setFileSelected(f, cb.checked);
+
+  // Empty caret keeps file names aligned with folder names.
+  const caret = document.createElement("span");
+  caret.className = "node-caret";
+
+  const ext = document.createElement("span");
+  ext.className = "file-ext " + f.category;
+  ext.textContent = (f.ext || "?").toUpperCase();
+  ext.title = `${f.category} file`;
+
+  const name = document.createElement("span");
+  name.className = "node-name";
+  name.textContent = f.name;
+  name.onclick = () => {
+    cb.checked = !cb.checked;
+    setFileSelected(f, cb.checked);
+  };
+
+  const size = document.createElement("span");
+  size.className = "node-size";
+  size.textContent = fmt(f.size);
+
+  row.append(cb, caret, ext, name, size);
+
+  // RAW already reads clearly from the extension badge; only call out the
+  // categories that are skipped by default.
+  if (f.category === "video" || f.category === "other") {
+    const b = document.createElement("span");
+    b.className = "node-badge" + (f.category === "other" ? " dead" : "");
+    b.textContent = f.category;
+    if (f.category === "other") {
+      b.title = "Not an image format; this file is always skipped.";
+    }
+    row.append(b);
+  }
+  return row;
+}
+
+/** One folder row plus lazily-built children (folders and files). */
 /** @param {any} node */
-function nodeEl(node) {
-  const opts = pathOptions();
-  const ex = excludedLower(excluded, opts.caseInsensitive);
-  const inc = excludedLower(included, opts.caseInsensitive);
-  const fully = isFullyExcluded(node.rel, ex, inc, opts);
-  const partial = !fully && hasExcludedDescendant(node, ex, inc, opts);
+function nodeEl(node, ctx, ancestorMatched = false) {
+  const selfMatch = !ctx.q || ancestorMatched || node.rel.toLowerCase().includes(ctx.q);
+  if (ctx.q && !selfMatch && !nodeMatches(node, ctx.q)) return null;
+
+  const stats = ctx.counts.get(node.rel) ?? { total: 0, selected: 0 };
+  const fully = isFullyExcluded(node.rel, ctx.ex, ctx.inc, ctx.opts);
+  let checked;
+  let indeterminate;
+  if (stats.total > 0) {
+    checked = stats.selected === stats.total;
+    indeterminate = stats.selected > 0 && stats.selected < stats.total;
+  } else {
+    checked = !fully;
+    indeterminate = !fully && hasExcludedDescendant(node, ctx.ex, ctx.inc, ctx.opts);
+  }
 
   const wrap = document.createElement("div");
   const kids = document.createElement("div");
-  const isOpen = expanded.has(node.rel);
-  kids.style.display = node.children.length && isOpen ? "block" : "none";
+  const hasKids = node.children.length > 0 || node.files.length > 0;
+  const isOpen = ctx.q ? true : expanded.has(node.rel);
+  kids.style.display = hasKids && isOpen ? "block" : "none";
+
+  let built = false;
+  const buildKids = () => {
+    if (built) return;
+    built = true;
+    // Files first: expanding a photo folder should show its photos, not bury
+    // them below a long list of subfolders.
+    for (const f of visibleFiles(node.files, ctx, selfMatch)) {
+      kids.appendChild(fileEl(f, node.depth + 1, ctx));
+    }
+    for (const c of [...node.children].sort(byName)) {
+      const el = nodeEl(c, ctx, selfMatch);
+      if (el) kids.appendChild(el);
+    }
+  };
 
   const row = document.createElement("div");
-  row.className = "node" + (fully ? " excluded" : "");
+  row.className = "node" +
+    (stats.total > 0
+      ? (stats.selected === 0 ? " excluded" : "")
+      : (fully ? " excluded" : ""));
+  row.dataset.folderRel = node.rel;
   row.style.paddingLeft = (8 + node.depth * 14) + "px";
 
   const cb = document.createElement("input");
   cb.type = "checkbox";
-  cb.checked = !fully;
-  cb.indeterminate = partial;
+  cb.checked = checked;
+  cb.indeterminate = indeterminate;
+  cb.setAttribute("aria-label", `Include ${node.name} and everything in it`);
   cb.onclick = (e) => e.stopPropagation();
   cb.onchange = () => {
     // Checking a partially-excluded folder means "include all of this".
@@ -296,7 +507,7 @@ function nodeEl(node) {
 
   const caret = document.createElement("span");
   caret.className = "node-caret";
-  caret.textContent = node.children.length ? (isOpen ? "▾" : "▸") : "";
+  caret.textContent = hasKids ? (isOpen ? "▾" : "▸") : "";
 
   const name = document.createElement("span");
   name.className = "node-name";
@@ -306,20 +517,39 @@ function nodeEl(node) {
   // Clicking the folder name expands or collapses it, which is what people
   // reach for before touching the checkbox.
   const toggleOpen = () => {
-    if (!node.children.length) return;
+    if (!hasKids) return;
     const open = kids.style.display === "none";
+    if (open) buildKids();
     kids.style.display = open ? "block" : "none";
     if (open) expanded.add(node.rel); else expanded.delete(node.rel);
     caret.textContent = open ? "▾" : "▸";
+    name.setAttribute("aria-expanded", open ? "true" : "false");
   };
   caret.onclick = (e) => { e.stopPropagation(); toggleOpen(); };
-  if (node.children.length) name.onclick = toggleOpen;
+  if (hasKids) {
+    name.onclick = toggleOpen;
+    name.tabIndex = 0;
+    name.setAttribute("role", "button");
+    name.setAttribute("aria-expanded", isOpen ? "true" : "false");
+    name.onkeydown = (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      toggleOpen();
+    };
+  }
+
+  const count = document.createElement("span");
+  count.className = "node-count";
+  count.textContent = node.count.toLocaleString();
+  count.title = `${node.count.toLocaleString()} files in this folder and below`;
 
   const size = document.createElement("span");
   size.className = "node-size";
   size.textContent = fmt(node.bytes);
 
-  row.append(cb, caret, name, size);
+  row.append(cb, caret, name);
+  if (node.count > 0) row.append(count);
+  row.append(size);
 
   if (node.rawBytes > 0) {
     const b = document.createElement("span");
@@ -336,24 +566,52 @@ function nodeEl(node) {
   }
 
   wrap.append(row, kids);
-  for (const c of node.children) kids.appendChild(nodeEl(c));
+  if (isOpen) buildKids();
   return wrap;
 }
 
 $("btnAll").onclick = () => {
   excluded = new Set();
   included = new Set();
+  excludedFiles = new Set();
+  includedFiles = new Set();
   refreshTree();
   refreshPreview();
 };
 $("btnNone").onclick = () => {
   if (!tree) return;
   // Top level only. Listing every nested folder is redundant given exclusion is
-  // prefix-based, and it bloats the payload sent to the server.
+  // prefix-based, and it bloats the payload sent to the server. Root-level
+  // files are not inside a folder, so they need their own entries.
   excluded = new Set(topLevelRels(tree));
   included = new Set();
+  excludedFiles = new Set(tree.files.map((f) => f.rel));
+  includedFiles = new Set();
   refreshTree();
   refreshPreview();
+};
+
+// ── tree filter and expansion ───────────────
+$("treeFilter").addEventListener("input", () => {
+  filterQuery = $input("treeFilter").value;
+  $("tree").scrollTop = 0;
+  refreshTree();
+});
+$("treeFilter").addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  $input("treeFilter").value = "";
+  filterQuery = "";
+  $("tree").scrollTop = 0;
+  refreshTree();
+});
+$("btnExpandAll").onclick = () => {
+  if (!tree) return;
+  expanded = new Set(collectRels(tree));
+  refreshTree();
+};
+$("btnCollapseAll").onclick = () => {
+  expanded = new Set();
+  refreshTree();
 };
 
 // ── extension toggles ──────────────────────
@@ -377,6 +635,8 @@ function renderExtToggles(map) {
 const policy = () => ({
   excludedFolders: [...excluded],
   includedFolders: [...included],
+  excludedFiles: [...excludedFiles],
+  includedFiles: [...includedFiles],
   extEnabled: Object.fromEntries(
     [...$("extToggles").children].map((c) => [c.textContent.slice(1), c.classList.contains("on")])
   ),
@@ -579,11 +839,14 @@ $("btnCompare").onclick = async () => {
   if (!tree) return;
 
   // Offer a spread of files so the comparison is not all one folder's look.
-  const flat = [];
-  (function walk(n) { flat.push(...n.files); for (const c of n.children) walk(c); })(tree);
-  const sep = pathSeparator();
-  const pick = flat.filter((f) => excluded.size === 0 ||
-    ![...excluded].some((e) => f.rel.startsWith(e + sep)));
+  const flat = collectFiles(tree);
+  const opts = pathOptions();
+  const ex = excludedLower(excluded, opts.caseInsensitive);
+  const inc = excludedLower(included, opts.caseInsensitive);
+  const exFiles = excludedLower(excludedFiles, opts.caseInsensitive);
+  const incFiles = excludedLower(includedFiles, opts.caseInsensitive);
+  const pick = flat.filter((f) =>
+    !isFileExcluded(f.rel, ex, inc, exFiles, incFiles, opts));
   if (!pick.length) { box.innerHTML = "<h4>Compare</h4><p>No files to compare.</p>"; return; }
   const step = Math.max(1, Math.floor(pick.length / 6));
   const samples = pick.filter((_, i) => i % step === 0).slice(0, 6);

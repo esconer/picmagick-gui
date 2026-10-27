@@ -237,11 +237,13 @@ environment variables when you want a persistent starting point.
 2. **Press Scan.** One walk of the library builds the file list and folder
    tree. Later views reuse that cache.
 
-3. **Choose folders and file types.** Use the tree checkboxes to include or
-   exclude folders. A partly excluded folder shows a dash. Excluding a parent
-   excludes its descendants; re-including a child creates an explicit include
-   override. Source-type toggles control which extensions are eligible. RAW is
-   off by default and can be enabled in the settings.
+3. **Choose files and folders.** Expanding a folder lists the files inside it,
+   each with its own checkbox. Excluding a folder deselects everything beneath
+   it; re-checking one file or one child folder creates an explicit include
+   override. A partly selected folder shows a dash. **Filter** narrows the tree
+   by file or folder name, and **Expand** / **Collapse** control the whole tree.
+   Source-type toggles control which extensions are eligible. RAW is off by
+   default and can be enabled in the settings.
 
 4. **Review the plan.** Each file ends up in one bucket:
 

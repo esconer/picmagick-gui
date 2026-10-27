@@ -23,6 +23,16 @@ export type Policy = {
    * the run. Include always wins.
    */
   includedFolders: string[];
+  /**
+   * Individual file rel-paths to skip. These are more specific than any
+   * folder rule, so a file can be dropped without excluding its folder.
+   */
+  excludedFiles: string[];
+  /**
+   * Individual file rel-paths to keep despite an excluded folder. Like
+   * includedFolders, an explicit include always wins.
+   */
+  includedFiles: string[];
   /** Explicit per-extension switches. Anything absent is off. */
   extEnabled: Record<string, boolean>;
   /** Skip source files smaller than this many bytes (converted or not). */
@@ -39,6 +49,8 @@ export type Policy = {
 export const DEFAULT_POLICY: Policy = {
   excludedFolders: [],
   includedFolders: [],
+  excludedFiles: [],
+  includedFiles: [],
   extEnabled: Object.fromEntries(CONVERT_EXTS.map((e) => [e, true])),
   minSizeBytes: 0,
   copyUndersized: true,
@@ -96,11 +108,23 @@ export const DEFAULT_RATIO = 0.174;
 export function normalisePolicy(p: Partial<Policy> | undefined): Policy {
   const base = { ...DEFAULT_POLICY, ...(p ?? {}) };
   const extEnabled = { ...DEFAULT_POLICY.extEnabled, ...(base.extEnabled ?? {}) };
+  const cleanFolders = (v: string[] | undefined) => [
+    ...new Set(
+      (v ?? [])
+        .filter((s) => typeof s === "string" && s.length > 0)
+        .map((s) => s.replace(/[\\/]+$/, "")),
+    ),
+  ];
+  const cleanFiles = (v: string[] | undefined) => [
+    ...new Set((v ?? []).filter((s) => typeof s === "string" && s.length > 0)),
+  ];
   return {
     ...base,
     extEnabled,
-    excludedFolders: (base.excludedFolders ?? []).map((s) => s.replace(/[\\/]+$/, "")),
-    includedFolders: (base.includedFolders ?? []).map((s) => s.replace(/[\\/]+$/, "")),
+    excludedFolders: cleanFolders(base.excludedFolders),
+    includedFolders: cleanFolders(base.includedFolders),
+    excludedFiles: cleanFiles(base.excludedFiles),
+    includedFiles: cleanFiles(base.includedFiles),
     qualities: (base.qualities ?? [60]).filter((q) => Number.isFinite(q) && q > 0),
     minSizeBytes: Math.max(0, base.minSizeBytes ?? 0),
     // aom accepts 0-10, but 10 exits 0 while writing an empty file.
@@ -138,23 +162,34 @@ const under = (rel: string, dir: string, norm: string) =>
  * children unreachable - you could not put one back without losing the parent's
  * exclusion, which is exactly the kind of silent mistake a backup tool must not
  * make.
+ *
+ * File-level rules are checked first because they are the most specific thing
+ * the user can say. An included file comes back even inside an excluded folder;
+ * an excluded file stays out even inside an included one.
  */
-function isExcluded(file: ScannedFile, excluded: string[], included: string[] = []): boolean {
+function isExcluded(file: ScannedFile, policy: Policy): boolean {
   const rel = foldKey(file.rel);
   const dir = foldKey(file.dir);
 
-  for (const inc of included) {
+  for (const inc of policy.includedFiles) {
+    if (inc && foldKey(inc) === rel) return false;
+  }
+  for (const ex of policy.excludedFiles) {
+    if (ex && foldKey(ex) === rel) return true;
+  }
+
+  for (const inc of policy.includedFolders) {
     if (inc && under(rel, dir, foldKey(inc))) return false;
   }
-  if (!excluded.length) return false;
-  for (const ex of excluded) {
+  if (!policy.excludedFolders.length) return false;
+  for (const ex of policy.excludedFolders) {
     if (ex && under(rel, dir, foldKey(ex))) return true;
   }
   return false;
 }
 
 export function classify(file: ScannedFile, policy: Policy): { verdict: Verdict; reason: Reason } {
-  if (isExcluded(file, policy.excludedFolders, policy.includedFolders)) {
+  if (isExcluded(file, policy)) {
     return { verdict: "skip", reason: "folder-excluded" };
   }
 
