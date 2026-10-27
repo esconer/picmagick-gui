@@ -13,6 +13,10 @@ desktop.ini
 *.zip
 *.7z
 
+# Local demo media and generated comparison previews are not part of the app.
+demo-images/
+.preview-cache/
+
 # Tests are kept local and are not part of the public repository.
 src/*.test.ts
 src/selftest.ts
