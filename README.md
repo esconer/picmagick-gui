@@ -343,6 +343,17 @@ Transparency and animation follow the format:
 - Copied under-size files keep their original filename and extension. They are
   byte-for-byte copies, not re-encoded outputs.
 
+JXL and JPEG 2000 are output formats only in this version. The scanner does not
+treat `.jxl` or `.jp2` files as convertible sources, so the app will not
+re-convert its own JXL or JPEG 2000 output. JPEG, PNG, WebP, HEIC, and the other
+listed source formats can still be read.
+
+One naming collision remains. If a folder contains `photo.jpg` and an under-size
+`photo.webp`, a WebP run converts `photo.jpg` to `photo.webp` and also copies
+`photo.webp` to the same path. The converted file is written first; with
+**Overwrite** off the copy is skipped, and with it on the copy replaces the
+converted file. The app does not rename either file.
+
 Old-format outputs are never deleted automatically. After switching from JXL to
 AVIF, for example, **Sync** reports the existing `.jxl` files as orphans and
 leaves them alone. **Runs** records the format used by each manifest.
