@@ -829,7 +829,9 @@ The Release workflow:
 - refuses to continue when the tag, `package.json`, and `electrobun.config.ts`
   versions differ;
 - attaches the installers, update archives, and update metadata to the GitHub
-  release.
+  release;
+- uses the matching `CHANGELOG.md` section as the start of the release notes,
+  followed by GitHub's generated pull-request summary.
 
 A release contains:
 
