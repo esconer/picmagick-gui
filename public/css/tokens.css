@@ -118,9 +118,10 @@
   --h-pane-head: 46px;
   --h-pane-foot: 36px;
   --h-status: 28px;
-  --w-library: minmax(280px, 320px);
-  --w-recipe: 360px;
-  --w-plan: minmax(420px, 1fr);
+  --w-pane-1: 1fr;
+  --w-pane-2: 1fr;
+  --w-pane-3: 1fr;
+  --w-resizer: 8px;
 
   /* ---- semantic aliases ---- */
   --surface-canvas: var(--bg);

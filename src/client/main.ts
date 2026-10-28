@@ -29,6 +29,7 @@ import { createFormatUi, type FormatUi } from "./format-ui";
 import { createLibrary, type LibraryController } from "./library";
 import { createPlan, type PlanController } from "./plan";
 import { createRunLifecycle, type RunLifecycle } from "./run-lifecycle";
+import { initSplitPanes } from "./split-panes";
 import { state } from "./state";
 import type {
   CompareResponse,
@@ -1093,6 +1094,7 @@ const toggleOverflow = (): void => {
 
 const boot = async (): Promise<void> => {
   applyTheme(storedTheme(), false);
+  initSplitPanes();
 
   try {
     const status = await api<Status>("status");

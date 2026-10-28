@@ -15,6 +15,13 @@
 - Added dual desktop release packages for Windows and Linux: a slim installer
   (~45 MB) and a full batteries-included installer with ImageMagick pre-bundled
   (~80 MB) that works offline out of the box.
+- Added a CPU usage limit slider (10%–100%, default 70%) with live mid-run
+  affinity control and process priority throttling, allowing ImageMagick's
+  processor utilization to be bounded so the system remains responsive during
+  heavy batch jobs.
+- Added interactive draggable splitters between the three cockpit panes with
+  equal-width (1:1:1) default sizing, ratio persistence in localStorage,
+  double-click to reset, and keyboard accessibility.
 
 ## 1.1.0 - 2026-10-28
 
