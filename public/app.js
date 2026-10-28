@@ -293,11 +293,11 @@ function createFormatUi(options) {
     const available = writable(spec.id);
     const support = state.status?.magick?.formats?.[spec.id];
     const selected = state.currentFormat === spec.id;
-    const meta = `.${spec.ext} · ${spec.summary}`;
+    const meta = spec.summary;
     const title = available ? `${spec.label} — ${spec.summary}` : `${spec.label} cannot be encoded by this ImageMagick build (format mode "${support?.mode ?? "missing"}").`;
     return `<button class="format-card" type="button" role="radio" aria-checked="${selected}" data-format="${spec.id}"${available ? "" : ' disabled aria-disabled="true"'} title="${escapeHtml(title)}">
       <span class="format-card-top">
-        <span class="format-icon">${escapeHtml(spec.shortLabel.slice(0, 3))}</span>
+        <span class="format-icon">${escapeHtml(spec.shortLabel)}</span>
         ${spec.id === "avif" ? `<span class="format-recommended">Recommended</span>` : ""}
         ${available ? "" : `<span class="format-lock">${icon("lock", 12)}</span>`}
       </span>
@@ -2260,14 +2260,14 @@ function createHealthView(actions) {
     pill.dataset.state = tone === "ok" ? "ok" : tone === "warn" ? "warn" : "bad";
     pill.textContent = fails ? "Needs attention" : warns ? "Usable, with warnings" : "Ready";
     const banner = `<div class="health-banner" data-tone="${tone}">
-      <span class="health-icon">${checkIcon(tone === "ok" ? "ok" : tone === "warn" ? "warn" : "fail")}</span>
+      <span class="health-icon">${icon(checkIcon(tone === "ok" ? "ok" : tone === "warn" ? "warn" : "fail"), 20)}</span>
       <div>
         <h2>${fails ? "Needs attention before converting" : warns ? "Ready, with warnings" : "Ready to convert"}</h2>
         <p>${health.checks.length} checks · ${fails} failed · ${warns} warnings${health.freeBytes != null ? ` · ${fmt(health.freeBytes)} free` : ""}</p>
       </div>
     </div>`;
     const checks = `<div class="health-grid">${health.checks.map((check) => `<div class="health-check" data-status="${check.status}">
-        <span class="health-check-icon">${checkIcon(check.status)}</span>
+        <span class="health-check-icon">${icon(checkIcon(check.status), 16)}</span>
         <div><h4>${escapeHtml(check.label)} <span class="muted">· ${statusWord(check.status)}</span></h4><p>${escapeHtml(check.detail)}</p></div>
       </div>`).join("")}</div>`;
     const matrix = `<section class="health-section">

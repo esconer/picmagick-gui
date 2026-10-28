@@ -61,13 +61,13 @@ export function createFormatUi(options: FormatUiOptions): FormatUi {
     const available = writable(spec.id);
     const support = state.status?.magick?.formats?.[spec.id];
     const selected = state.currentFormat === spec.id;
-    const meta = `.${spec.ext} · ${spec.summary}`;
+    const meta = spec.summary;
     const title = available
       ? `${spec.label} — ${spec.summary}`
       : `${spec.label} cannot be encoded by this ImageMagick build (format mode "${support?.mode ?? "missing"}").`;
     return `<button class="format-card" type="button" role="radio" aria-checked="${selected}" data-format="${spec.id}"${available ? "" : " disabled aria-disabled=\"true\""} title="${escapeHtml(title)}">
       <span class="format-card-top">
-        <span class="format-icon">${escapeHtml(spec.shortLabel.slice(0, 3))}</span>
+        <span class="format-icon">${escapeHtml(spec.shortLabel)}</span>
         ${spec.id === "avif" ? `<span class="format-recommended">Recommended</span>` : ""}
         ${available ? "" : `<span class="format-lock">${icon("lock", 12)}</span>`}
       </span>
