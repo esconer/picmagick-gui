@@ -3,13 +3,16 @@
  * always agree, and when a `v*` tag is being built the tag must match too.
  * Run by CI and .github/workflows/release.yml.
  *
- * `GITHUB_REF_NAME` is set by Actions. Without a tag (a branch build, manual
- * dispatch, or a local run) the tag comparison is skipped.
+ * Actions sets `GITHUB_REF_TYPE` and `GITHUB_REF`; a branch build (or a local
+ * run without them) skips the tag comparison.
  */
 import pkg from "../package.json";
 import config from "../electrobun.config.ts";
 
-const tag = process.env.GITHUB_REF_NAME?.replace(/^v/, "");
+const isTag =
+  process.env.GITHUB_REF_TYPE === "tag" ||
+  process.env.GITHUB_REF?.startsWith("refs/tags/");
+const tag = isTag ? process.env.GITHUB_REF_NAME?.replace(/^v/, "") : undefined;
 const packageVersion = pkg.version;
 const appVersion = config.app.version;
 
