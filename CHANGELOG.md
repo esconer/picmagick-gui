@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.0 - 2026-10-28
 
 - Added a seven-format output selector: JPEG XL, AVIF (still the default), WebP,
   HEIC, JPEG 2000, JPEG, and PNG. Quality and encoder-speed sliders change
@@ -43,6 +43,8 @@
   per-platform installers plus update archives and metadata.
 - Packaged runs keep the managed ImageMagick build and compare previews in the
   per-user app data folder. Source runs keep the existing project-root layout.
+- CI now builds the desktop app on Windows and Linux, so packaging failures are
+  caught before a release tag is pushed.
 
 ## 1.0.0 - 2026-10-21
 

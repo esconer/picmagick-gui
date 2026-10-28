@@ -10,7 +10,7 @@ export default {
   app: {
     name: "PicMagick GUI",
     identifier: "com.github.esconer.picmagick-gui",
-    version: "1.0.0",
+    version: "1.1.0",
     description:
       "Local GUI for converting a photo library to JXL, AVIF, WebP, HEIC, JPEG 2000, JPEG, or PNG.",
   },

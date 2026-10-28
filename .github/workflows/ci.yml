@@ -10,8 +10,18 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    runs-on: windows-latest
+  check:
+    name: Check and package (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            runs-on: windows-latest
+          - platform: linux
+            runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runs-on }}
+
     steps:
       - name: Check out
         uses: actions/checkout@v4
@@ -21,31 +31,28 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: TypeScript
-        run: bun run typecheck
-
-      - name: Browser script check
-        run: bun run src/client.check.ts
-
-      - name: Platform path check
-        run: bun run src/platform.check.ts
-
-  linux:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out
-        uses: actions/checkout@v4
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
+      # Electrobun's Linux launcher links GTK 3 and WebKitGTK 4.1.
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            libpipewire-0.3-dev \
+            librsvg2-dev
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      # package.json and electrobun.config.ts must agree even on branch builds.
+      - name: Check release versions
+        run: bun run release:check
 
       - name: Full check
         run: bun run check
+
+      # Catch packaging breakage before a release tag is pushed.
+      - name: Build desktop app
+        run: bun run desktop:build
