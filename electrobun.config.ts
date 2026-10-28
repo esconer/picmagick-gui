@@ -1,12 +1,11 @@
 import type { ElectrobunConfig } from "electrobun";
-import { existsSync } from "node:fs";
 
 const isFull = process.env.PICMAGIK_FLAVOR === "full";
 const copy: Record<string, string> = {
   public: "public",
 };
 
-if (isFull && existsSync("imagemagick")) {
+if (isFull) {
   copy.imagemagick = "imagemagick";
 }
 

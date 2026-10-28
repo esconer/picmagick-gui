@@ -197,13 +197,18 @@ function errorText(err: unknown): string {
 export async function fetchLatestRelease(force = false): Promise<LatestRelease> {
   if (!force && cached && Date.now() - cached.at < CACHE_MS) return cached.release;
 
+  const headers: Record<string, string> = {
+    "user-agent": USER_AGENT,
+    accept: "application/vnd.github+json",
+  };
+  if (process.env.GITHUB_TOKEN) {
+    headers.authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+  }
+
   let res: Response;
   try {
     res = await fetch(RELEASE_API, {
-      headers: {
-        "user-agent": USER_AGENT,
-        accept: "application/vnd.github+json",
-      },
+      headers,
       signal: AbortSignal.timeout(15_000),
     });
   } catch (err) {
@@ -547,6 +552,7 @@ async function readManagedAppImage(): Promise<ManagedAppImage | null> {
  * fill the AVIF gap; a distro build that can encode AVIF should stay in use.
  */
 function assertNoWorkingSystemMagick(): void {
+  if (process.env.PICMAGIK_FORCE_BUNDLE === "1") return;
   let current: MagickInfo | null = null;
   try {
     current = findMagick();

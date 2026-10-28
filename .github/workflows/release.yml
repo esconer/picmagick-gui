@@ -42,6 +42,7 @@ jobs:
             libayatana-appindicator3-dev \
             libpipewire-0.3-dev \
             librsvg2-dev
+          sudo apt-get install -y libfuse2t64 2>/dev/null || sudo apt-get install -y libfuse2 2>/dev/null || true
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -55,8 +56,34 @@ jobs:
       - name: Build slim desktop app
         run: bun run desktop:build
 
+      - name: Stash slim artifacts
+        shell: bash
+        run: |
+          mkdir -p "${{ runner.temp }}/stashed-artifacts"
+          cp -r artifacts/* "${{ runner.temp }}/stashed-artifacts/"
+
+      - name: Download ImageMagick for bundling
+        run: bun run scripts/ensure-bundled-magick.ts
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PICMAGIK_FORCE_BUNDLE: "1"
+
       - name: Build full desktop app (with ImageMagick)
         run: bun run desktop:build:full
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PICMAGIK_FORCE_BUNDLE: "1"
+
+      - name: Restore slim artifacts
+        shell: bash
+        run: |
+          cp -r "${{ runner.temp }}/stashed-artifacts/"* artifacts/
+
+      - name: Verify release artifacts
+        shell: bash
+        run: |
+          echo "=== Release Artifacts ==="
+          ls -lh artifacts/
 
       - name: Upload installers and update artifacts
         uses: actions/upload-artifact@v4

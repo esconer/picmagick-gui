@@ -6,6 +6,10 @@ import { spawnSync } from "node:child_process";
 // 1. Ensure ImageMagick is present in imagemagick/
 const ensure = spawnSync("bun", ["run", "scripts/ensure-bundled-magick.ts"], {
   stdio: "inherit",
+  env: {
+    ...process.env,
+    PICMAGIK_FORCE_BUNDLE: "1",
+  },
 });
 if (ensure.status !== 0) {
   process.exit(ensure.status ?? 1);
