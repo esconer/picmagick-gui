@@ -19,7 +19,7 @@ import path from "node:path";
 import { IS_LINUX, IS_WINDOWS, pathKey } from "./platform.ts";
 import { findMagick, runMagickFile, type MagickInfo } from "./paths.ts";
 import { compareVersions, isNewerVersion, parseVersion } from "./version.ts";
-import { MAGICK_DIR } from "./appdirs.ts";
+import { MAGICK_DIR, BUNDLED_MAGICK_DIR } from "./appdirs.ts";
 
 export const IMAGEMAGICK_ROOT = MAGICK_DIR;
 
@@ -265,11 +265,17 @@ export async function fetchLatestRelease(force = false): Promise<LatestRelease> 
   return release;
 }
 
-/** True when a binary lives inside the app's own imagemagick folder. */
+/** True when a binary lives inside the app's own imagemagick folder (user-managed or pre-bundled). */
 export function isManagedInstall(p: string | null | undefined): boolean {
   if (!p) return false;
+  const target = pathKey(path.resolve(p));
   const root = pathKey(path.resolve(IMAGEMAGICK_ROOT));
-  return pathKey(path.resolve(p)).startsWith(root + path.sep);
+  if (target.startsWith(root + path.sep)) return true;
+  if (BUNDLED_MAGICK_DIR) {
+    const bundledRoot = pathKey(path.resolve(BUNDLED_MAGICK_DIR));
+    if (target.startsWith(bundledRoot + path.sep)) return true;
+  }
+  return false;
 }
 
 /**

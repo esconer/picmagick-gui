@@ -39,6 +39,25 @@ function findPublicDir(): string {
   );
 }
 
+/**
+ * Locate pre-bundled ImageMagick inside the packaged app if present.
+ */
+function findBundledMagickDir(): string | undefined {
+  const candidates = [
+    process.env.PICMAGIK_BUNDLED_MAGICK_DIR,
+    path.join(PATHS.RESOURCES_FOLDER, "app", "imagemagick"),
+    path.join(PATHS.RESOURCES_FOLDER, "imagemagick"),
+    path.resolve(import.meta.dir, "imagemagick"),
+    path.resolve(import.meta.dir, "..", "imagemagick"),
+    path.resolve(import.meta.dir, "..", "..", "imagemagick"),
+  ].filter((dir): dir is string => Boolean(dir));
+
+  for (const dir of candidates) {
+    if (existsSync(dir)) return dir;
+  }
+  return undefined;
+}
+
 /** Per-user writable folder; never inside the installed app bundle. */
 function resolveDataDir(): string {
   try {
@@ -55,6 +74,11 @@ mkdirSync(DATA_DIR, { recursive: true });
 process.env.PICMAGIK_DESKTOP = "1";
 process.env.PICMAGIK_DATA_DIR = DATA_DIR;
 process.env.PICMAGIK_PUBLIC_DIR = findPublicDir();
+
+const bundledMagick = findBundledMagickDir();
+if (bundledMagick) {
+  process.env.PICMAGIK_BUNDLED_MAGICK_DIR = bundledMagick;
+}
 
 const { startServer } = await import("./server.ts");
 

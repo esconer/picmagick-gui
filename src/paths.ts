@@ -10,7 +10,7 @@ import { homedir } from "node:os";
 import { IS_LINUX, IS_WINDOWS, MAGICK_BIN, pathKey } from "./platform.ts";
 import { compareVersions, parseVersion } from "./version.ts";
 import { OUTPUT_FORMATS, type OutputFormat } from "./formats.ts";
-import { MAGICK_DIR } from "./appdirs.ts";
+import { MAGICK_DIR, BUNDLED_MAGICK_DIR } from "./appdirs.ts";
 
 export const CONVERT_EXTS = [
   "jpg", "jpeg", "jpe", "jfif", "heic", "heif", "png", "bmp", "tif", "tiff", "webp", "gif",
@@ -157,8 +157,7 @@ function appImageCandidates(root: string): string[] {
  * The old behaviour searched beside the project. Keeping this first means an
  * in-project copy wins even if an older portable build sits next to it.
  */
-function projectMagickCandidates(): string[] {
-  const root = LOCAL_MAGICK_ROOT;
+function projectMagickCandidates(root: string = LOCAL_MAGICK_ROOT): string[] {
   const out: string[] = [];
 
   const pointer = readTextSafe(path.join(root, "current.txt"))?.trim();
@@ -197,8 +196,13 @@ function candidateMagickPaths(): string[] {
   const here = import.meta.dir;
   const out: string[] = [];
 
-  // 1. The portable build shipped in this project's own imagemagick folder.
-  out.push(...projectMagickCandidates());
+  // 1. The portable build shipped in this project's own imagemagick folder (or user-managed in DATA_ROOT).
+  out.push(...projectMagickCandidates(LOCAL_MAGICK_ROOT));
+
+  // 2. Pre-bundled build shipped inside the packaged app, if present.
+  if (BUNDLED_MAGICK_DIR && pathKey(BUNDLED_MAGICK_DIR) !== pathKey(LOCAL_MAGICK_ROOT)) {
+    out.push(...projectMagickCandidates(BUNDLED_MAGICK_DIR));
+  }
 
   if (IS_WINDOWS) {
     // 2. A copy dropped beside this project (the original layout).

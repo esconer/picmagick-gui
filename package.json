@@ -16,6 +16,7 @@
     "desktop:dev": "electrobun dev --watch",
     "desktop:prepare": "electrobun prepare",
     "desktop:build": "electrobun build --env=stable",
+    "desktop:build:full": "bun run scripts/build-full-desktop.ts",
     "desktop:build:canary": "electrobun build --env=canary",
     "release:check": "bun run scripts/check-release-version.ts",
     "build:client": "bun build src/client/main.ts --outfile public/app.js --target browser",

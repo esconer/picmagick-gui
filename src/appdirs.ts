@@ -20,6 +20,11 @@ export const DATA_ROOT = configured ? path.resolve(configured) : BUNDLE_ROOT;
 /** Official portable ImageMagick / AppImage downloads. */
 export const MAGICK_DIR = path.join(DATA_ROOT, "imagemagick");
 
+/** Pre-bundled ImageMagick inside the packaged app, if present. */
+export const BUNDLED_MAGICK_DIR = process.env.PICMAGIK_BUNDLED_MAGICK_DIR?.trim()
+  ? path.resolve(process.env.PICMAGIK_BUNDLED_MAGICK_DIR.trim())
+  : undefined;
+
 /** Generated quality-comparison previews. Safe to delete at any time. */
 export const PREVIEW_CACHE_DIR = path.join(DATA_ROOT, ".preview-cache");
 

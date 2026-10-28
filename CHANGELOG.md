@@ -12,6 +12,9 @@
 - Modularized stylesheets into `tokens.css`, `base.css`, `layout.css`,
   `components.css`, `themes.css`, and `views.css` supporting six themes and
   daylight light/dark toggling.
+- Added dual desktop release packages for Windows and Linux: a slim installer
+  (~45 MB) and a full batteries-included installer with ImageMagick pre-bundled
+  (~80 MB) that works offline out of the box.
 
 ## 1.1.0 - 2026-10-28
 

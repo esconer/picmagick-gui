@@ -1,4 +1,14 @@
 import type { ElectrobunConfig } from "electrobun";
+import { existsSync } from "node:fs";
+
+const isFull = process.env.PICMAGIK_FLAVOR === "full";
+const copy: Record<string, string> = {
+  public: "public",
+};
+
+if (isFull && existsSync("imagemagick")) {
+  copy.imagemagick = "imagemagick";
+}
 
 /**
  * Desktop packaging. The Bun main process starts the same local server the
@@ -8,8 +18,10 @@ import type { ElectrobunConfig } from "electrobun";
  */
 export default {
   app: {
-    name: "PicMagick GUI",
-    identifier: "com.github.esconer.picmagick-gui",
+    name: isFull ? "PicMagick GUI Full" : "PicMagick GUI",
+    identifier: isFull
+      ? "com.github.esconer.picmagick-gui-full"
+      : "com.github.esconer.picmagick-gui",
     version: "1.2.0",
     description:
       "Local GUI for converting a photo library to JXL, AVIF, WebP, HEIC, JPEG 2000, JPEG, or PNG.",
@@ -21,9 +33,7 @@ export default {
       sourcemap: "linked",
     },
     // The server reads these files at runtime; they must travel with the app.
-    copy: {
-      public: "public",
-    },
+    copy,
     win: {
       icon: "assets/icon.ico",
     },
