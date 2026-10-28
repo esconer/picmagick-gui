@@ -25,6 +25,7 @@ import {
   IMAGEMAGICK_ROOT, isManagedInstall, isTrustedReleaseUrl,
   pickAppImageAsset, pickPortableAsset,
 } from "./imagemagick.ts";
+import { pickLeanAppAsset } from "./app-update.ts";
 import { calculateAffinityMask, applyProcessCpuLimit } from "./cpu.ts";
 import { spawn } from "node:child_process";
 import * as tree from "../src/client/tree-logic.ts";
@@ -428,6 +429,26 @@ await check("applies CPU limit dynamically to process", () => {
     assert.equal(ok2, true);
   }
   child.kill();
+});
+
+await check("app update picks the lean asset and ignores full and zst archives", () => {
+  const assets = [
+    { name: "stable-win-x64-PicMagickGUI.tar.zst", size: 45000000, browser_download_url: "https://dl/zst" },
+    { name: "stable-win-x64-update.json", size: 100, browser_download_url: "https://dl/json" },
+    { name: "win-x64-PicMagickGUIFull-Setup.zip", size: 125000000, browser_download_url: "https://dl/win-full" },
+    { name: "win-x64-PicMagickGUI-Setup.zip", size: 47000000, browser_download_url: "https://dl/win-lean" },
+    { name: "linux-x64-PicMagickGUIFull-Setup.tar.gz", size: 80000000, browser_download_url: "https://dl/lin-full" },
+    { name: "linux-x64-PicMagickGUI-Setup.tar.gz", size: 49000000, browser_download_url: "https://dl/lin-lean" },
+  ];
+  const picked = pickLeanAppAsset(assets);
+  assert.ok(picked);
+  if (IS_WINDOWS) {
+    assert.equal(picked.name, "win-x64-PicMagickGUI-Setup.zip");
+    assert.equal(picked.url, "https://dl/win-lean");
+  } else {
+    assert.equal(picked.name, "linux-x64-PicMagickGUI-Setup.tar.gz");
+    assert.equal(picked.url, "https://dl/lin-lean");
+  }
 });
 
 console.log(failures ? `\n${failures} platform check(s) failed` : "\nplatform OK");

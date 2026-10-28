@@ -7,6 +7,8 @@
 /** [major, minor, patch, build]. A plain "7.1.2" has build 0. */
 export type VersionTuple = [number, number, number, number];
 
+export const APP_VERSION = "1.2.0";
+
 export function parseVersion(text: string): VersionTuple | null {
   const m = /(\d+)\.(\d+)\.(\d+)(?:[-._](\d+))?/.exec(text);
   if (!m) return null;

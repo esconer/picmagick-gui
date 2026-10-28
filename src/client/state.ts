@@ -7,6 +7,7 @@
  * subscriptions, just the app's current truth.
  */
 import type {
+  AppUpdateStatus,
   CompareResponse,
   Estimate,
   FileResult,
@@ -79,6 +80,7 @@ export type AppState = {
   es: EventSource | null;
 
   imStatus: UpdateStatus | null;
+  appUpdate: AppUpdateStatus | null;
   lastEstimate: Estimate | null;
   lastSync: SyncResponse | null;
 
@@ -146,6 +148,7 @@ export const state: AppState = {
   es: null,
 
   imStatus: null,
+  appUpdate: null,
   lastEstimate: null,
   lastSync: null,
 

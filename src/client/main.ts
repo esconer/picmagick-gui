@@ -32,6 +32,7 @@ import { createRunLifecycle, type RunLifecycle } from "./run-lifecycle";
 import { initSplitPanes } from "./split-panes";
 import { state } from "./state";
 import type {
+  AppUpdateStatus,
   CompareResponse,
   Estimate,
   HealthReport,
@@ -943,6 +944,240 @@ const installMagick = async (): Promise<void> => {
 };
 
 // --------------------------------------------------------------------------
+// PicMagick GUI self-update
+// --------------------------------------------------------------------------
+
+let appUpdateTimer: number | null = null;
+
+const renderAppPill = (status: AppUpdateStatus): void => {
+  const pill = $("appUpdate");
+  if (status.stage === "ready") {
+    pill.classList.remove("hidden", "warn");
+    pill.classList.add("ready");
+    pill.textContent = `Update Ready (v${status.latestVersion}) — Click to Apply`;
+    pill.title = `PicMagick GUI v${status.latestVersion} is downloaded and ready. Click to restart and apply.`;
+  } else if (status.stage === "downloading") {
+    pill.classList.remove("hidden", "ready");
+    pill.classList.add("warn");
+    pill.textContent = `Downloading App v${status.latestVersion} (${status.percent}%)`;
+    pill.title = `Downloading update: ${status.percent}%`;
+  } else if (status.updateAvailable && status.latestVersion) {
+    pill.classList.remove("hidden", "ready");
+    pill.classList.add("warn");
+    pill.textContent = `PicMagick v${status.latestVersion} available`;
+    pill.title = `New version v${status.latestVersion} available — click to review`;
+  } else {
+    pill.classList.add("hidden");
+  }
+};
+
+const pollAppDownloadProgress = (): void => {
+  if (appUpdateTimer !== null) return;
+  appUpdateTimer = window.setInterval(() => {
+    void (async () => {
+      try {
+        const p = await api<AppUpdateStatus>("app/update/progress");
+        state.appUpdate = p;
+        renderAppPill(p);
+
+        const fill = document.getElementById("appDownloadFill");
+        const note = document.getElementById("appDownloadNote");
+        if (fill) setWidth(fill, Math.max(0, Math.min(100, p.percent)) / 100);
+        if (note && p.message) note.textContent = p.message;
+
+        if (p.stage === "ready") {
+          if (appUpdateTimer !== null) {
+            window.clearInterval(appUpdateTimer);
+            appUpdateTimer = null;
+          }
+          toast(`PicMagick GUI v${p.latestVersion} is ready to install!`, "success");
+          if (document.getElementById("appDownloadFill")) {
+            openAppUpdateModal(p);
+          }
+        } else if (p.stage === "error") {
+          if (appUpdateTimer !== null) {
+            window.clearInterval(appUpdateTimer);
+            appUpdateTimer = null;
+          }
+          toast(p.message || "Update download failed.", "danger");
+        }
+      } catch {
+        /* ignore polling errors */
+      }
+    })();
+  }, 750);
+};
+
+const openAppUpdateModal = (status: AppUpdateStatus): void => {
+  if (status.stage === "ready") {
+    const isJobActive = state.running || state.run.state === "running" || state.run.state === "paused";
+    plainModal(
+      "Update Ready to Install",
+      `<p class="modal-copy">PicMagick GUI <strong>v${escapeHtml(status.latestVersion ?? "")}</strong> is downloaded and ready to install.</p>
+       <div class="fact-list">
+         <div class="fact-row"><span>New version</span><span class="mono">v${escapeHtml(status.latestVersion ?? "")}</span></div>
+         <div class="fact-row"><span>Current version</span><span class="mono">v${escapeHtml(status.currentVersion)}</span></div>
+         <div class="fact-row"><span>Package</span><span>Lean update (${escapeHtml(status.assetName ?? "package")})</span></div>
+       </div>
+       <p class="note">Applying the update will launch the installer and restart the app. Any bundled ImageMagick is preserved automatically.</p>
+       ${isJobActive ? `<div class="inline-msg warn" style="margin-top:10px">A conversion job is in progress. Wait for it to complete or pause/cancel it before updating.</div>` : ""}`,
+      "sm",
+    );
+
+    setModalFoot(
+      `<button id="btnAppReadyLater" class="btn ghost" type="button">Later</button>` +
+      `<button id="btnAppApply" class="btn primary" type="button" ${isJobActive ? 'disabled="disabled"' : ""}>Restart & Apply Update</button>`,
+    );
+
+    $("btnAppReadyLater").addEventListener("click", () => {
+      closeModal();
+      setModalFoot("");
+    });
+
+    $("btnAppApply").addEventListener("click", () => {
+      void (async () => {
+        try {
+          const btn = $<HTMLButtonElement>("btnAppApply");
+          btn.disabled = true;
+          btn.textContent = "Restarting…";
+          plainModal(
+            "Applying Update",
+            `<p class="modal-copy ok">Launching the installer and restarting PicMagick GUI…</p>
+             <p class="note">This window will close as the installer updates your application.</p>`,
+            "sm",
+          );
+          setModalFoot("");
+          await api("app/update/apply", { method: "POST", body: {} });
+        } catch (err) {
+          toast(formatError(err), "danger");
+          closeModal();
+        }
+      })();
+    });
+    return;
+  }
+
+  if (status.stage === "downloading") {
+    plainModal(
+      `Downloading PicMagick GUI v${escapeHtml(status.latestVersion ?? "")}`,
+      `<p class="modal-copy">Downloading the update in the background…</p>
+       <div class="meter" style="margin-top:14px"><div id="appDownloadFill"></div></div>
+       <p id="appDownloadNote" class="note" aria-live="polite">${escapeHtml(status.message)}</p>
+       <p class="note" style="margin-top:10px">You can close this dialog at any time. The download will continue in the background while you work.</p>`,
+      "sm",
+    );
+    const fill = document.getElementById("appDownloadFill");
+    if (fill) setWidth(fill, Math.max(0, Math.min(100, status.percent)) / 100);
+
+    setModalFoot(
+      `<button id="btnAppDownloadDismiss" class="btn ghost" type="button">Hide (keep downloading)</button>`,
+    );
+    $("btnAppDownloadDismiss").addEventListener("click", () => {
+      closeModal();
+      setModalFoot("");
+    });
+    pollAppDownloadProgress();
+    return;
+  }
+
+  if (!status.isDesktop) {
+    plainModal(
+      "PicMagick GUI Update Available",
+      `<p class="modal-copy">PicMagick GUI <strong>v${escapeHtml(status.latestVersion ?? "")}</strong> is available on GitHub (current: v${escapeHtml(status.currentVersion)}).</p>
+       <p class="modal-copy">You are running from a source checkout. Run <code>git pull && bun install</code> to update.</p>`,
+      "sm",
+    );
+    setModalFoot(
+      `<button id="btnAppLater" class="btn ghost" type="button">Close</button>` +
+      (status.releaseUrl ? `<a href="${escapeHtml(status.releaseUrl)}" target="_blank" class="btn primary" style="display:inline-flex;align-items:center;text-decoration:none">View on GitHub</a>` : ""),
+    );
+    $("btnAppLater").addEventListener("click", () => {
+      closeModal();
+      setModalFoot("");
+    });
+    return;
+  }
+
+  // Stage === "available"
+  plainModal(
+    "New Version of PicMagick Available",
+    `<p class="modal-copy">PicMagick GUI <strong>v${escapeHtml(status.latestVersion ?? "")}</strong> is now available (you are on v${escapeHtml(status.currentVersion)}). Would you like to download it now?</p>
+     <div class="fact-list">
+       <div class="fact-row"><span>New version</span><span class="mono">v${escapeHtml(status.latestVersion ?? "")}</span></div>
+       <div class="fact-row"><span>Current version</span><span class="mono">v${escapeHtml(status.currentVersion)}</span></div>
+       <div class="fact-row"><span>Package</span><span>Lean update (${escapeHtml(status.assetName ?? "Setup")})</span></div>
+       <div class="fact-row"><span>Download size</span><span>${fmt(status.totalBytes)}</span></div>
+     </div>
+     <p class="note">The update will download quietly in the background without interrupting your work. You can apply it whenever you are ready.</p>`,
+    "sm",
+  );
+
+  setModalFoot(
+    `<button id="btnAppLater" class="btn ghost" type="button">Not now</button>` +
+    `<button id="btnAppDownload" class="btn primary" type="button">Download update</button>`,
+  );
+
+  $("btnAppLater").addEventListener("click", () => {
+    try {
+      if (status.latestVersion) {
+        sessionStorage.setItem("appUpdateDismissed", status.latestVersion);
+      }
+    } catch {}
+    closeModal();
+    setModalFoot("");
+  });
+
+  $("btnAppDownload").addEventListener("click", () => {
+    void (async () => {
+      try {
+        toast(`Downloading PicMagick GUI v${status.latestVersion} in the background…`, "info");
+        await api("app/update/download", { method: "POST", body: {} });
+        status.stage = "downloading";
+        status.percent = 0;
+        status.message = "Starting download…";
+        renderAppPill(status);
+        openAppUpdateModal(status);
+        pollAppDownloadProgress();
+      } catch (err) {
+        toast(formatError(err), "danger");
+      }
+    })();
+  });
+};
+
+const checkApp = async (force = false, promptUser = false): Promise<AppUpdateStatus> => {
+  const status = await api<AppUpdateStatus>(`app/update${force ? "?force=1" : ""}`);
+  state.appUpdate = status;
+  renderAppPill(status);
+
+  if (status.stage === "downloading") {
+    pollAppDownloadProgress();
+  } else if (status.stage === "ready") {
+    if (promptUser) {
+      openAppUpdateModal(status);
+    }
+  } else if (status.updateAvailable && status.latestVersion) {
+    let dismissed = false;
+    try {
+      dismissed = sessionStorage.getItem("appUpdateDismissed") === status.latestVersion;
+    } catch {}
+
+    if (promptUser || !dismissed) {
+      openAppUpdateModal(status);
+    }
+  }
+  return status;
+};
+
+const handleAppUpdateClick = (): void => {
+  if (state.appUpdate) {
+    openAppUpdateModal(state.appUpdate);
+  } else {
+    void checkApp(false, true);
+  }
+};
+
+// --------------------------------------------------------------------------
 // About + quit
 // --------------------------------------------------------------------------
 
@@ -953,6 +1188,7 @@ const openAbout = (): void => {
     `<p class="modal-copy">A local-first photo converter. The source library is only ever read; every output is written to a separate destination and recorded in an undoable manifest.</p>
      <div class="fact-list">
        <div class="fact-row"><span>Version</span><span>v1.2.0</span></div>
+       <div class="fact-row"><span>Check for updates</span><button id="btnAboutCheckUpdate" class="btn ghost sm" type="button">Check now</button></div>
        <div class="fact-row"><span>Platform</span><span>${escapeHtml(platformName(status?.platform ?? ""))} · ${escapeHtml(status?.arch ?? "—")}</span></div>
        <div class="fact-row"><span>ImageMagick</span><span>${status?.magick ? escapeHtml(shortVersion(status.magick.version)) : "not found"}</span></div>
        <div class="fact-row"><span>Destination</span><span class="mono" title="${escapeHtml(status?.destination ?? "")}">${escapeHtml(middlePath(status?.destination ?? "—", 56))}</span></div>
@@ -965,6 +1201,10 @@ const openAbout = (): void => {
      </div>`,
     "sm",
   );
+  document.getElementById("btnAboutCheckUpdate")?.addEventListener("click", () => {
+    closeModal();
+    void checkApp(true, true);
+  });
 };
 
 const showServerStopped = (): void => {
@@ -1137,6 +1377,9 @@ const boot = async (): Promise<void> => {
     void checkMagick(false).catch((error: unknown) => {
       toast(formatError(error), "warning");
     });
+    void checkApp(false).catch((error: unknown) => {
+      console.warn("App update check failed:", error);
+    });
   } catch (error) {
     toast(formatError(error), "danger");
     plan.render();
@@ -1299,6 +1542,7 @@ $("btnQuit").addEventListener("click", () => {
   closeOverflow();
   quitServer();
 });
+$("appUpdate").addEventListener("click", handleAppUpdateClick);
 $("imUpdate").addEventListener("click", () => void installMagick());
 
 $("btnOverflow").addEventListener("click", (event) => {

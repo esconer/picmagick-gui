@@ -483,3 +483,29 @@ export type UpdateStatus = {
   error: string | null;
   install: InstallProgress;
 };
+
+export type AppUpdateStage =
+  | "idle"
+  | "checking"
+  | "available"
+  | "downloading"
+  | "ready"
+  | "error";
+
+export type AppUpdateStatus = {
+  currentVersion: string;
+  latestVersion: string | null;
+  updateAvailable: boolean;
+  stage: AppUpdateStage;
+  message: string;
+  percent: number;
+  downloadedBytes: number;
+  totalBytes: number;
+  releaseNotes: string | null;
+  releaseUrl: string | null;
+  assetName: string | null;
+  installerPath: string | null;
+  checkedAt: number | null;
+  error: string | null;
+  isDesktop: boolean;
+};

@@ -120,6 +120,14 @@
   background: var(--status-warning-soft);
   color: var(--status-warning);
 }
+.update-pill.ready {
+  border-color: color-mix(in srgb, var(--status-success) 55%, var(--border-default));
+  background: var(--status-success-soft);
+  color: var(--status-success);
+}
+.update-pill.ready:hover {
+  border-color: var(--status-success);
+}
 
 .dot,
 .status-dot {

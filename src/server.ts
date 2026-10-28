@@ -33,6 +33,13 @@ import { Job, getJob, liveJob, pausedJob, newJob, manifestsFor, undoManifest } f
 import { analyseSync, pendingOnly, type SyncReport } from "./sync.ts";
 import { formatBytes } from "./convert.ts";
 import { checkForUpdate, installLatest, installProgress } from "./imagemagick.ts";
+import {
+  applyAppUpdate,
+  checkAppUpdate,
+  dismissAppUpdate,
+  downloadAppUpdate,
+  getAppUpdateProgress,
+} from "./app-update.ts";
 import { CASE_INSENSITIVE, IS_LINUX, IS_WINDOWS, pathKey, REL_SEP } from "./platform.ts";
 import { PREVIEW_CACHE_DIR, PUBLIC_DIR } from "./appdirs.ts";
 
@@ -522,6 +529,46 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
           }
         : null,
     });
+  }
+
+  // ---- PicMagick GUI self-update routes ----
+  if (route === "app/update" && req.method === "GET") {
+    return json(await checkAppUpdate(url.searchParams.get("force") === "1"));
+  }
+
+  if (route === "app/update/check" && req.method === "GET") {
+    return json(await checkAppUpdate(url.searchParams.get("force") === "1"));
+  }
+
+  if (route === "app/update/progress" && req.method === "GET") {
+    return json(getAppUpdateProgress());
+  }
+
+  if (route === "app/update/download" && req.method === "POST") {
+    void downloadAppUpdate().catch((err) => {
+      console.warn("App update download error:", err);
+    });
+    return json({ ok: true, ...getAppUpdateProgress() });
+  }
+
+  if (route === "app/update/dismiss" && req.method === "POST") {
+    const body = await readBody<{ version?: string }>(req).catch(() => ({ version: undefined }));
+    dismissAppUpdate(body.version);
+    return json({ ok: true });
+  }
+
+  if (route === "app/update/apply" && req.method === "POST") {
+    const live = liveJob();
+    if (live) {
+      throw new HttpError(
+        409,
+        live.state === "paused"
+          ? "A conversion is paused. Resume or cancel it before updating PicMagick GUI."
+          : "A conversion is currently running. Wait for it to complete or cancel it before updating PicMagick GUI.",
+      );
+    }
+    const result = await applyAppUpdate();
+    return json(result);
   }
 
   // ---- quality preview: render one image at several qualities ----

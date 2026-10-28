@@ -149,9 +149,13 @@ Windows uses the WebView2 runtime that ships with current Windows 10 and 11. If
 the window stays blank, install the
 [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
 
-The release also carries `.tar.zst` update archives and `*-update.json`
-metadata. The app does not check for updates yet; those files are for the
-Electrobun updater and for anyone hosting their own release mirror.
+### Automatic In-App Updates
+
+PicMagick GUI includes an integrated self-updater:
+- **Update Checks**: Checks GitHub Releases for new versions without blocking the UI.
+- **Background Downloads**: When a new version is detected, you can choose to download the lean/slim update package (~45 MB) in the background while conversions continue uninterrupted.
+- **Safe Application**: Once downloaded, an "Update Ready" badge appears. Clicking it allows you to restart and apply the update whenever you are ready. Any bundled ImageMagick installation is automatically preserved into persistent user storage so you never have to redownload it.
+- **Source Users**: For git checkout users, the app indicates that a newer version is available and provides instructions (`git pull && bun install`).
 
 ### From source
 
