@@ -19,8 +19,9 @@ import path from "node:path";
 import { IS_LINUX, IS_WINDOWS, pathKey } from "./platform.ts";
 import { findMagick, runMagickFile, type MagickInfo } from "./paths.ts";
 import { compareVersions, isNewerVersion, parseVersion } from "./version.ts";
+import { MAGICK_DIR } from "./appdirs.ts";
 
-export const IMAGEMAGICK_ROOT = path.resolve(import.meta.dir, "..", "imagemagick");
+export const IMAGEMAGICK_ROOT = MAGICK_DIR;
 
 const RELEASE_API = "https://api.github.com/repos/ImageMagick/ImageMagick/releases/latest";
 const RELEASES_PAGE = "https://github.com/ImageMagick/ImageMagick/releases";

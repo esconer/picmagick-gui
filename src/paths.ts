@@ -10,6 +10,7 @@ import { homedir } from "node:os";
 import { IS_LINUX, IS_WINDOWS, MAGICK_BIN, pathKey } from "./platform.ts";
 import { compareVersions, parseVersion } from "./version.ts";
 import { OUTPUT_FORMATS, type OutputFormat } from "./formats.ts";
+import { MAGICK_DIR } from "./appdirs.ts";
 
 export const CONVERT_EXTS = [
   "jpg", "jpeg", "jpe", "jfif", "heic", "heif", "png", "bmp", "tif", "tiff", "webp", "gif",
@@ -89,7 +90,7 @@ export const JUNK_EXTS = [
 ] as const;
 
 /** Where the app keeps (or downloads) its own portable ImageMagick. */
-export const LOCAL_MAGICK_ROOT = path.resolve(import.meta.dir, "..", "imagemagick");
+export const LOCAL_MAGICK_ROOT = MAGICK_DIR;
 
 function readTextSafe(file: string): string | null {
   try {

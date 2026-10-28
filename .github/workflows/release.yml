@@ -4,13 +4,24 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  release:
-    runs-on: windows-latest
+  desktop:
+    name: Desktop (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            runs-on: windows-latest
+          - platform: linux
+            runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runs-on }}
+
     steps:
       - name: Check out
         uses: actions/checkout@v4
@@ -20,23 +31,53 @@ jobs:
         with:
           bun-version: latest
 
+      # Electrobun's Linux launcher links GTK 3 and WebKitGTK 4.1.
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            libpipewire-0.3-dev \
+            librsvg2-dev
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: TypeScript
-        run: bun run typecheck
+      - name: Check release versions agree
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: bun run release:check
 
-      - name: Browser script check
-        run: bun run src/client.check.ts
+      - name: Full check
+        run: bun run check
 
-      - name: Build source archive
-        shell: pwsh
-        run: |
-          $name = "picmagick-gui-${{ github.ref_name }}.zip"
-          git archive --format=zip --prefix=picmagick-gui/ -o $name HEAD
+      - name: Build desktop app
+        run: bun run desktop:build
+
+      - name: Upload installers and update artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.platform }}
+          path: artifacts/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    needs: desktop
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Collect artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          files: picmagick-gui-${{ github.ref_name }}.zip
+          files: artifacts/*
           generate_release_notes: true

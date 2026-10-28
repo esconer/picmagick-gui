@@ -34,9 +34,12 @@ import { analyseSync, pendingOnly, type SyncReport } from "./sync.ts";
 import { formatBytes } from "./convert.ts";
 import { checkForUpdate, installLatest, installProgress } from "./imagemagick.ts";
 import { CASE_INSENSITIVE, IS_LINUX, IS_WINDOWS, pathKey, REL_SEP } from "./platform.ts";
+import { PREVIEW_CACHE_DIR, PUBLIC_DIR } from "./appdirs.ts";
 
-const HERE = import.meta.dir;
-const PUBLIC = path.resolve(HERE, "..", "public");
+// Resolved by startServer(). A source run keeps the project layout; the
+// desktop entrypoint passes the packaged resources and the writable cache.
+let publicDir = PUBLIC_DIR;
+let previewCacheDir = PREVIEW_CACHE_DIR;
 
 // --------------------------------------------------------------------------
 // Shared server state
@@ -543,7 +546,7 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
     const qualities = (body.qualities ?? spec.compareQualities).slice(0, 6);
     // Fixed location. This previously took a destination from the request
     // body, which let a caller direct writes anywhere on the machine.
-    const outDir = path.resolve(HERE, "..", ".preview-cache");
+    const outDir = previewCacheDir;
     await ensureDir(outDir);
 
     const srcArg = sourceArgFor(file.abs, file.ext, format, false);
@@ -971,10 +974,10 @@ const PREVIEW_MIME: Record<string, string> = {
 async function serveStatic(pathname: string): Promise<Response> {
   if (pathname === "/" || pathname === "") pathname = "/index.html";
 
-  // Preview cache lives beside public/ and holds only generated previews.
+  // Preview cache holds only generated previews; it is writable app state.
   if (pathname.startsWith("/preview-cache/")) {
     const name = path.basename(pathname);
-    const file = path.resolve(HERE, "..", ".preview-cache", name);
+    const file = path.resolve(previewCacheDir, name);
     try {
       const data = await readFile(file);
       return new Response(data, {
@@ -990,7 +993,7 @@ async function serveStatic(pathname: string): Promise<Response> {
   }
 
   const rel = pathname.replace(/^\/+/, "");
-  const file = path.resolve(PUBLIC, rel);
+  const file = path.resolve(publicDir, rel);
   if (!pathKey(file).startsWith(pathKey(publicRoot()))) {
     return new Response("forbidden", { status: 403 });
   }
@@ -1004,54 +1007,88 @@ async function serveStatic(pathname: string): Promise<Response> {
   }
 }
 
-const publicRoot = () => path.resolve(PUBLIC) + path.sep;
+const publicRoot = () => path.resolve(publicDir) + path.sep;
 
 // --------------------------------------------------------------------------
 // Boot
 // --------------------------------------------------------------------------
 
-const PORT = Number(process.env.PORT ?? 5178);
-
-const server = Bun.serve({
-  port: PORT,
-  hostname: "127.0.0.1",
-  idleTimeout: 255,
-
-  async fetch(req) {
-    const url = new URL(req.url);
-    try {
-      if (url.pathname.startsWith("/api/")) {
-        return await handleApi(url.pathname, req, url);
-      }
-      return await serveStatic(url.pathname);
-    } catch (err) {
-      if (err instanceof HttpError) return json({ error: err.message }, err.status);
-      console.error(err);
-      return json({ error: (err as Error).message ?? "internal error" }, 500);
-    }
-  },
-});
-
-requestShutdown = () => {
-  server.stop(true);
-  process.exit(0);
+export type ServerOptions = {
+  /** Listening port. 0 picks a free one; defaults to PORT or 5178. */
+  port?: number;
+  /** Static browser files (index.html, app.js, ...). */
+  publicDir?: string;
+  /** Writable folder for generated quality-comparison previews. */
+  previewCacheDir?: string;
+  /** Open the default browser once the listener is ready. */
+  open?: boolean;
 };
 
-// Surface obvious misconfiguration early rather than on the first request.
-try {
-  state.magick = findMagick();
-  console.log(`ImageMagick : ${state.magick.version}`);
-  console.log(`AVIF        : ${state.magick.avifMode} ${state.magick.avifWritable ? "writable" : "READ ONLY"}`);
-} catch (err) {
-  console.error(`WARNING: ${(err as Error).message.split("\n")[0]}`);
+export type RunningServer = {
+  server: ReturnType<typeof Bun.serve>;
+  port: number;
+  stop: () => void;
+};
+
+/**
+ * Start the local server. The browser launchers call the source entrypoint,
+ * which starts this immediately; the Electrobun main process calls it with a
+ * free port and the packaged resource/cache folders.
+ */
+export function startServer(options: ServerOptions = {}): RunningServer {
+  if (options.publicDir) publicDir = path.resolve(options.publicDir);
+  if (options.previewCacheDir) previewCacheDir = path.resolve(options.previewCacheDir);
+
+  const PORT = options.port ?? Number(process.env.PORT ?? 5178);
+
+  const server = Bun.serve({
+    port: PORT,
+    hostname: "127.0.0.1",
+    idleTimeout: 255,
+
+    async fetch(req) {
+      const url = new URL(req.url);
+      try {
+        if (url.pathname.startsWith("/api/")) {
+          return await handleApi(url.pathname, req, url);
+        }
+        return await serveStatic(url.pathname);
+      } catch (err) {
+        if (err instanceof HttpError) return json({ error: err.message }, err.status);
+        console.error(err);
+        return json({ error: (err as Error).message ?? "internal error" }, 500);
+      }
+    },
+  });
+
+  requestShutdown = () => {
+    server.stop(true);
+    process.exit(0);
+  };
+
+  const boundPort = server.port ?? PORT;
+
+  // Surface obvious misconfiguration early rather than on the first request.
+  try {
+    state.magick = findMagick();
+    console.log(`ImageMagick : ${state.magick.version}`);
+    console.log(`AVIF        : ${state.magick.avifMode} ${state.magick.avifWritable ? "writable" : "READ ONLY"}`);
+  } catch (err) {
+    console.error(`WARNING: ${(err as Error).message.split("\n")[0]}`);
+  }
+
+  console.log(`Source      : ${state.sourceRoot}`);
+  console.log(`Destination : ${state.destination}`);
+  console.log(`\n  picmagick-gui running at http://127.0.0.1:${boundPort}\n`);
+
+  if (options.open ?? process.argv.includes("--open")) {
+    openBrowser(`http://127.0.0.1:${boundPort}`);
+  }
+
+  return { server, port: boundPort, stop: () => server.stop(true) };
 }
 
-console.log(`Source      : ${state.sourceRoot}`);
-console.log(`Destination : ${state.destination}`);
-console.log(`\n  picmagick-gui running at http://127.0.0.1:${server.port}\n`);
-
-if (process.argv.includes("--open")) {
-  const target = `http://127.0.0.1:${server.port}`;
+function openBrowser(target: string): void {
   const opener = IS_WINDOWS ? "cmd" : IS_LINUX ? "xdg-open" : "open";
   const args = IS_WINDOWS ? ["/c", "start", "", target] : [target];
   spawn(opener, args, {
@@ -1061,4 +1098,9 @@ if (process.argv.includes("--open")) {
   }).on("error", () => {
     console.warn(`Could not open a browser automatically. Open ${target} manually.`);
   }).unref();
+}
+
+// The desktop main process imports this module and starts the server itself.
+if (import.meta.main && !process.env.PICMAGIK_DESKTOP) {
+  startServer();
 }

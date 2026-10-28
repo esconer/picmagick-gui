@@ -57,6 +57,9 @@ and, if you accept one, the ImageMagick download.
   portable build on Windows or the official AppImage on Linux.
 - **First-class Windows and Linux support.** Native paths, folder pickers, and
   launchers on both platforms.
+- **Optional native window.** Electrobun packages the same app as a Windows or
+  Linux desktop app with Bun bundled. The browser launchers remain for source
+  runs.
 - **Six built-in themes.** Midnight, Daylight, Ink, Sepia, Nord, and Rose, plus
   Auto to follow the system light/dark preference. The choice is remembered in
   the browser and applied before first paint.
@@ -66,11 +69,13 @@ and, if you accept one, the ImageMagick download.
 | | Windows | Linux |
 |---|---|---|
 | Supported versions | Windows 10 or 11 | Linux |
-| Launcher | `start.bat` | `start.sh` |
+| Desktop app | Native window (WebView2) | Native window (WebKitGTK 4.1) |
+| Desktop installer | `win-x64-PicMagickGUI-Setup.zip` | `linux-x64-PicMagickGUI-Setup.tar.gz` |
+| Source launcher | `start.bat` | `start.sh` |
 | Folder picker | Native PowerShell dialog | `zenity` or `kdialog`; typed-path fallback |
 | ImageMagick | Portable Q16 build or system install | System ImageMagick 7 or official AppImage |
 | Automatic ImageMagick download | Yes (portable Q16) | Yes on x86_64 (AppImage) |
-| Stop the server | **Quit** or close the minimised server window | **Quit** or `Ctrl+C` in the terminal |
+| Stop the app | Close the window, **Quit**, or close the minimised server window | Close the window, **Quit**, or `Ctrl+C` in the terminal |
 | CI | Windows check | Linux check |
 
 Linux on non-x86_64 architectures works when ImageMagick 7 with write support
@@ -79,15 +84,19 @@ x86_64 only. macOS is not officially supported.
 
 ## Requirements
 
-- [Bun](https://bun.sh) 1.1 or newer.
+- **Source runs:** [Bun](https://bun.sh) 1.1 or newer. The desktop installer
+  bundles its own Bun, so nothing needs to be installed first.
+- **Desktop runs:** the WebView2 runtime on Windows (included in current Windows
+  10 and 11) or GTK 3 and WebKitGTK 4.1 on Linux.
 - ImageMagick 7 with write support for the format you choose. Linux requires
   ImageMagick 7; Windows should use ImageMagick 7 as well. AVIF write support is
   required for the default format.
-- A current browser.
+- A current browser for source runs.
 - Enough free disk space for the output tree.
 
-The app has no separate build step. Bun runs the TypeScript server and serves
-the browser files directly.
+The source app has no separate build step. Bun runs the TypeScript server and
+serves the browser files directly. The desktop installers are built with
+Electrobun; see [Releasing](#releasing).
 
 ImageMagick must be able to **write** the selected format. Check the formats you
 plan to use with:
@@ -107,22 +116,53 @@ it. HEIC stays in the dropdown but is disabled until a build reports `HEIC rw`.
 The bundled Windows build used for testing (`7.1.2-34`) has `HEIC r--`; use a
 build with a HEIC encoder, or choose another format, for HEIC output.
 
-If no usable ImageMagick build is found, the app can install a managed build
-into `imagemagick/` at the project root. On Linux, a build that cannot write
-AVIF also triggers the AppImage offer.
+If no usable ImageMagick build is found, the app can install a managed build.
+Source runs put it in `imagemagick/` beside the project; the desktop app uses
+its per-user app data folder. On Linux, a build that cannot write AVIF also
+triggers the AppImage offer.
 
 ## Install and run
 
-Download the latest source archive from the
-[Releases page](https://github.com/esconer/picmagick-gui/releases), or clone the
-repository:
+### Desktop app (Windows and Linux)
+
+Download the installer for your platform from the
+[Releases page](https://github.com/esconer/picmagick-gui/releases):
+
+| Platform | Download | Install |
+|---|---|---|
+| Windows 10/11 x64 | `win-x64-PicMagickGUI-Setup.zip` | Unzip, then run `PicMagick GUI-Setup.exe`. It installs for the current user. |
+| Linux x64 | `linux-x64-PicMagickGUI-Setup.tar.gz` | Extract, then run `./installer`. |
+
+The desktop app opens its own window and starts the same local server on a free
+loopback port. Bun is bundled, so neither Bun nor a terminal is required.
+ImageMagick is still required, and the app offers the same managed download as
+the browser version.
+
+Linux needs GTK 3, WebKitGTK 4.1, Ayatana AppIndicator, and librsvg. On
+Ubuntu 24.04 or Debian 13:
+
+```bash
+sudo apt install libgtk-3-0 libwebkit2gtk-4.1-0 libayatana-appindicator3-1 librsvg2-2
+```
+
+Windows uses the WebView2 runtime that ships with current Windows 10 and 11. If
+the window stays blank, install the
+[WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
+
+The release also carries `.tar.zst` update archives and `*-update.json`
+metadata. The app does not check for updates yet; those files are for the
+Electrobun updater and for anyone hosting their own release mirror.
+
+### From source
+
+Clone the repository, then use the Windows or Linux launcher:
 
 ```bash
 git clone https://github.com/esconer/picmagick-gui.git
 cd picmagick-gui
 ```
 
-### Windows
+#### Windows (source)
 
 1. Install Bun if it is not already available. In PowerShell:
 
@@ -148,7 +188,7 @@ cd picmagick-gui
 answer, and opens `http://127.0.0.1:5178`. Close that minimised
 **picmagick-gui** window to stop the server, or use **Quit** in the page header.
 
-### Linux
+#### Linux (source)
 
 1. Install Bun if it is not already available:
 
@@ -174,7 +214,7 @@ manually.
 If `zenity` or `kdialog` is installed, the folder buttons open a native picker.
 Without either, type the path directly into the source or destination field.
 
-### Terminal, either platform
+#### Terminal, either platform
 
 ```bash
 bun install       # first time, or after dependency changes
@@ -549,8 +589,8 @@ using the installed build and reports the check as offline.
 
 Run the format check shown in [Requirements](#requirements). On Linux, the
 distribution may still ship ImageMagick 6; use a current ImageMagick 7 package
-or the AppImage. On Windows, install the portable build when the page offers it, or unzip it
-into `imagemagick/` manually.
+or the AppImage. On Windows, install the portable build when the page offers
+it, or unzip it into `imagemagick/` manually.
 
 ### A format is disabled or read-only
 
@@ -592,6 +632,21 @@ them as orphans so you can decide what to keep.
 - **ARM64 or another non-x86_64 architecture.** Automatic AppImage installs are
   unavailable. Install ImageMagick 7 with AVIF support from your distribution.
 
+### Desktop app
+
+- **The window is blank on Windows.** Install the WebView2 Runtime linked in
+  [Desktop app](#desktop-app-windows-and-linux). Current Windows 10 and 11
+  usually include it already.
+- **The window does not open on Linux.** Install the GTK 3, WebKitGTK 4.1,
+  Ayatana AppIndicator, and librsvg packages listed in the same section. The
+  launcher reports a missing shared library when one is absent.
+- **The app stops immediately after launch.** Run the platform installer rather
+  than the `build/` output. A stable Electrobun bundle is an installer payload;
+  only the installed copy has the metadata the launcher needs.
+- **Where is the managed ImageMagick build?** Everything writable (managed
+  ImageMagick and compare previews) lives in the per-user app data folder, not
+  the install folder. Uninstalling can remove it.
+
 ### Both platforms
 
 - **Port 5178 is already in use.** Stop the old server, or start on another
@@ -610,6 +665,27 @@ bun run dev
 `bun run dev` starts the server with hot reload. Open
 `http://127.0.0.1:5178` after it starts.
 
+### Desktop shell
+
+The desktop app is the same server inside an Electrobun window. `src/desktop.ts`
+is the main-process entrypoint, `electrobun.config.ts` describes the bundle, and
+`hutch.config.ts` pins the Electrobun/Hutch versions.
+
+```bash
+bun install
+bun run desktop:prepare   # fetch the Electrobun SDK once
+bun run desktop:dev       # build and launch the desktop window with reload
+bun run desktop:build     # stable installer for the current OS in artifacts/
+```
+
+Hutch builds only for the host platform, so a complete release needs one build
+per operating system; the release workflow does both.
+
+`src/electrobun.d.ts` is a minimal local declaration for the SDK surface the main
+process uses. It keeps `bun run typecheck` working before `.hutch/devkit` has
+been generated. Re-check it deliberately when the pinned Electrobun version
+changes.
+
 Useful checks:
 
 | Command | Purpose |
@@ -621,13 +697,17 @@ Useful checks:
 | `bun run check` | Run all of the above |
 
 GitHub Actions runs the checks on both Windows and Linux. The release workflow
-also runs the checks and creates a source archive when a `v*` tag is pushed.
+also runs the checks, builds the desktop installers, and publishes them when a
+`v*` tag is pushed.
 
 ## Project layout
 
 ```text
 src/
   server.ts       routes, static files, SSE, job registry
+  desktop.ts      Electrobun main process: server + native window
+  appdirs.ts      writable data root (project root or per-user app data)
+  electrobun.d.ts minimal typings for the Electrobun main-process SDK
   scan.ts         one walk -> cached file list and directory tree
   policy.ts       selections -> convert | copy | skip
   formats.ts      output-format registry, encoder args, slider mappings
@@ -651,13 +731,19 @@ public/
   treelogic.js    pure tree logic
   formatlogic.js  pure destination-suffix logic
   style.css       styling and theme palettes
+assets/
+  icon.png        Linux application icon
+  icon.ico        Windows application icon
 imagemagick/      managed ImageMagick (downloaded or placed by hand)
+electrobun.config.ts  desktop bundle: entrypoint, copied files, icons
+hutch.config.ts       Electrobun/Hutch version pin and build tasks
 start.bat         Windows launcher
 start.sh          Linux launcher
 ```
 
-`imagemagick/` is intentionally ignored by Git because the downloaded build is
-large and is fetched on demand.
+`imagemagick/`, `.hutch/`, `build/`, and `artifacts/` are intentionally ignored
+by Git. The managed ImageMagick build is large and fetched on demand; the other
+three are generated by Hutch and Electrobun.
 
 ## Local API
 
@@ -723,16 +809,50 @@ ImageMagick discovery should pass both the Windows and Linux CI jobs.
 
 ## Releasing
 
-Push a version tag to trigger the release workflow:
+The desktop installers are built with Electrobun. Each release needs one native
+build per operating system, so the workflow runs a Windows and an Ubuntu job.
+
+1. Bump the version in `package.json` and in `app.version` in
+   `electrobun.config.ts`. They must match the tag.
+2. Commit, then push a version tag:
+
+   ```bash
+   git tag v1.1.0
+   git push origin main --tags
+   ```
+
+The Release workflow:
+
+- installs the Linux GTK 3 and WebKitGTK 4.1 build dependencies;
+- runs `bun run check` on both platforms;
+- runs `bun run desktop:build` (`electrobun build --env=stable`) on each;
+- refuses to continue when the tag, `package.json`, and `electrobun.config.ts`
+  versions differ;
+- attaches the installers, update archives, and update metadata to the GitHub
+  release.
+
+A release contains:
+
+| Platform | Installer | Update artifacts |
+|---|---|---|
+| Windows x64 | `win-x64-PicMagickGUI-Setup.zip` | `stable-win-x64-PicMagickGUI.tar.zst`, `stable-win-x64-update.json` |
+| Linux x64 | `linux-x64-PicMagickGUI-Setup.tar.gz` | `stable-linux-x64-PicMagickGUI.tar.zst`, `stable-linux-x64-update.json` |
+
+To build for the current OS without publishing:
 
 ```bash
-git tag v1.0.0
-git push origin main --tags
+bun install
+bun run desktop:build
 ```
 
-The workflow runs its checks on Windows, builds
-`picmagick-gui-<tag>.zip` from the repository, and attaches it to the GitHub
-release.
+Artifacts land in `artifacts/`; the expanded app bundle is in `build/`. Both are
+ignored by Git. `bun run desktop:build:canary` produces the canary channel
+instead, which installs alongside the stable app.
+
+Electrobun's channel, platform, and filename conventions are fixed. If you later
+host updates yourself, set `release.baseUrl` in `electrobun.config.ts` to the
+folder URL and upload `artifacts/` without renaming anything; see the
+[Electrobun distribution guide](https://framework.blackboard.sh/electrobun/guides/bundling-and-distribution/).
 
 ## License
 

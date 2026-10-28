@@ -38,6 +38,11 @@
 - Added `zenity`/`kdialog` folder picking on Linux, with a typed-path fallback
   for headless sessions.
 - Added `start.sh`, Linux setup documentation, and Windows + Linux CI checks.
+- Added an Electrobun desktop app for Windows and Linux. It runs the same local
+  server in a native window with Bun bundled, and the release workflow publishes
+  per-platform installers plus update archives and metadata.
+- Packaged runs keep the managed ImageMagick build and compare previews in the
+  per-user app data folder. Source runs keep the existing project-root layout.
 
 ## 1.0.0 - 2026-10-21
 
