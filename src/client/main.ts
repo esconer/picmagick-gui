@@ -333,6 +333,7 @@ const updateChrome = (): void => {
   $("freeChip").textContent = free == null ? "" : `${fmt(free)} free`;
   $("recipeMeta").textContent = state.formatSpecs[state.currentFormat]?.shortLabel ?? "—";
   paintRange("viewJobs");
+  paintRange("viewCpuLimit");
   updateRail();
   updateStartOptions();
 };
@@ -574,6 +575,11 @@ const updateJobsReadout = (): void => {
   paintRange("jobs");
 };
 
+const updateCpuLimitReadout = (): void => {
+  $("cpuLimitOut").textContent = `${input("cpuLimit").value}%`;
+  paintRange("cpuLimit");
+};
+
 const paintRange = (id: string): void => {
   const node = input(id);
   const min = Number(node.min) || 0;
@@ -584,7 +590,7 @@ const paintRange = (id: string): void => {
 };
 
 const paintRanges = (): void => {
-  for (const id of ["minsize", "jobs", "budget", "viewJobs"]) paintRange(id);
+  for (const id of ["minsize", "jobs", "cpuLimit", "budget", "viewJobs", "viewCpuLimit"]) paintRange(id);
 };
 
 // --------------------------------------------------------------------------
@@ -1109,6 +1115,7 @@ const boot = async (): Promise<void> => {
     setUndersize(status.policy.copyUndersized);
     updateMinSizeReadout();
     updateJobsReadout();
+    updateCpuLimitReadout();
     paintRanges();
     updateStartOptions();
 
@@ -1248,6 +1255,21 @@ input("viewJobs").addEventListener("input", () => {
   updateJobsReadout();
   paintRange("viewJobs");
   runLifecycle.setJobs(input("viewJobs").valueAsNumber);
+});
+
+input("cpuLimit").addEventListener("input", () => {
+  updateCpuLimitReadout();
+  input("viewCpuLimit").value = input("cpuLimit").value;
+  $("viewCpuLimitOut").textContent = `${input("cpuLimit").value}%`;
+  paintRange("viewCpuLimit");
+  runLifecycle.setCpuLimit(input("cpuLimit").valueAsNumber);
+});
+input("viewCpuLimit").addEventListener("input", () => {
+  $("viewCpuLimitOut").textContent = `${input("viewCpuLimit").value}%`;
+  input("cpuLimit").value = input("viewCpuLimit").value;
+  updateCpuLimitReadout();
+  paintRange("viewCpuLimit");
+  runLifecycle.setCpuLimit(input("viewCpuLimit").valueAsNumber);
 });
 
 input("overwrite").addEventListener("change", updateStartOptions);

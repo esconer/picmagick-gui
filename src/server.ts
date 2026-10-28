@@ -623,7 +623,7 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
 
   // ---- run ----
   if (route === "run" && req.method === "POST") {
-    const body = await readBody<{ jobs?: number; overwrite?: boolean; policy?: Partial<Policy>; onlyNew?: boolean }>(req);
+    const body = await readBody<{ jobs?: number; cpuLimit?: number; overwrite?: boolean; policy?: Partial<Policy>; onlyNew?: boolean }>(req);
     // A paused job still owns its queue, so a fresh run must not start over it.
     const live = liveJob();
     if (live) {
@@ -661,6 +661,7 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
     if (decisions.length === 0) throw new HttpError(400, "Nothing to do - everything is already converted.");
 
     const jobs = Math.max(1, Math.min(body.jobs ?? 2, 32));
+    const cpuLimit = Math.max(10, Math.min(Number(body.cpuLimit) || 70, 100));
     const job = newJob();
 
     void job.start({
@@ -670,6 +671,7 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
       magickPath: magick.path,
       policy: state.policy,
       jobs,
+      cpuLimit,
       overwrite: Boolean(body.overwrite),
       qualityLabel: state.policy.qualities,
     });
@@ -678,6 +680,7 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
       jobId: job.id,
       total: decisions.length,
       jobs,
+      cpuLimit,
       outputFormat: state.policy.outputFormat,
     });
   }
@@ -726,10 +729,12 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
   if (route.startsWith("jobs/") && req.method === "POST") {
     const job = getJob(route.slice("jobs/".length));
     if (!job) throw new HttpError(404, "Unknown job.");
-    const body = await readBody<{ jobs?: number }>(req);
-    // The pool reads this before every dispatch, so it takes effect on the
-    // next file rather than at the next run.
-    return json({ ok: true, jobs: job.setJobs(Number(body.jobs)) });
+    const body = await readBody<{ jobs?: number; cpuLimit?: number }>(req);
+    // The pool reads this before every dispatch, and in-flight processes are updated immediately.
+    const res: { ok: boolean; jobs?: number; cpuLimit?: number } = { ok: true };
+    if (body.jobs !== undefined) res.jobs = job.setJobs(Number(body.jobs));
+    if (body.cpuLimit !== undefined) res.cpuLimit = job.setCpuLimit(Number(body.cpuLimit));
+    return json(res);
   }
 
   if (route.startsWith("pause/") && req.method === "POST") {

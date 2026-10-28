@@ -229,6 +229,11 @@ export function createRunView(actions: ViewActions): RunViewController {
     const viewJobs = $<HTMLInputElement>("viewJobs");
     if (document.activeElement !== viewJobs) viewJobs.value = jobs.value;
     $("viewJobsOut").textContent = viewJobs.value;
+
+    const cpuLimit = $<HTMLInputElement>("cpuLimit");
+    const viewCpuLimit = $<HTMLInputElement>("viewCpuLimit");
+    if (document.activeElement !== viewCpuLimit) viewCpuLimit.value = cpuLimit.value;
+    $("viewCpuLimitOut").textContent = `${viewCpuLimit.value}%`;
   };
 
   // Delegated result actions. Bound once; the container is re-rendered.

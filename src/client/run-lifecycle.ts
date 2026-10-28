@@ -35,6 +35,7 @@ export type RunLifecycle = {
   resume: () => Promise<void>;
   cancel: () => Promise<void>;
   setJobs: (jobs: number) => void;
+  setCpuLimit: (cpuLimit: number) => void;
 };
 
 export function createRunLifecycle(options: RunLifecycleOptions): RunLifecycle {
@@ -241,6 +242,12 @@ export function createRunLifecycle(options: RunLifecycleOptions): RunLifecycle {
       const out = document.getElementById("jobsOut");
       if (out) out.textContent = String(snapshot.jobs);
     }
+    const cpuLimit = document.getElementById("cpuLimit") as HTMLInputElement | null;
+    if (cpuLimit && snapshot.cpuLimit) {
+      cpuLimit.value = String(snapshot.cpuLimit);
+      const out = document.getElementById("cpuLimitOut");
+      if (out) out.textContent = `${snapshot.cpuLimit}%`;
+    }
     render();
   };
 
@@ -278,12 +285,14 @@ export function createRunLifecycle(options: RunLifecycleOptions): RunLifecycle {
     try {
       await options.save();
       const jobsInput = document.getElementById("jobs") as HTMLInputElement | null;
+      const cpuLimitInput = document.getElementById("cpuLimit") as HTMLInputElement | null;
       const overwrite = document.getElementById("overwrite") as HTMLInputElement | null;
       const onlyNew = document.getElementById("onlyNew") as HTMLInputElement | null;
       const response = await api<RunResponse>("run", {
         method: "POST",
         body: {
           jobs: jobsInput?.valueAsNumber ?? 2,
+          cpuLimit: cpuLimitInput?.valueAsNumber ?? 70,
           overwrite: Boolean(overwrite?.checked),
           onlyNew: Boolean(runOptions.onlyNew ?? onlyNew?.checked),
           policy: options.policy(),
@@ -356,5 +365,17 @@ export function createRunLifecycle(options: RunLifecycleOptions): RunLifecycle {
     }, 200);
   };
 
-  return { start, attach, pause, resume, cancel, setJobs };
+  let cpuLimitTimer: ReturnType<typeof setTimeout> | null = null;
+  const setCpuLimit = (cpuLimit: number): void => {
+    if (!state.currentJob) return;
+    if (cpuLimitTimer) clearTimeout(cpuLimitTimer);
+    cpuLimitTimer = setTimeout(() => {
+      void api(`jobs/${encodeURIComponent(state.currentJob ?? "")}`, {
+        method: "POST",
+        body: { cpuLimit },
+      }).catch((error: unknown) => options.onError((error as Error).message));
+    }, 200);
+  };
+
+  return { start, attach, pause, resume, cancel, setJobs, setCpuLimit };
 }

@@ -332,6 +332,15 @@
 
           <div class="field">
             <div class="field-head">
+              <label for="cpuLimit">CPU limit</label>
+              <output id="cpuLimitOut" class="value-out" for="cpuLimit">70%</output>
+            </div>
+            <input id="cpuLimit" type="range" min="10" max="100" step="5" value="70" aria-describedby="cpuLimitNote">
+            <p class="note" id="cpuLimitNote">Caps processor core affinity (10%–100%). Changes apply immediately mid-run.</p>
+          </div>
+
+          <div class="field">
+            <div class="field-head">
               <label for="budget">Storage budget</label>
               <output id="budgetOut" class="value-out" for="budget">10 GB</output>
             </div>
@@ -540,6 +549,14 @@
         </div>
         <input id="viewJobs" type="range" min="1" max="16" step="1" value="2">
         <p class="note">Applies to the next file while a run is in progress.</p>
+      </div>
+      <div class="field grow">
+        <div class="field-head">
+          <label for="viewCpuLimit">CPU limit</label>
+          <output id="viewCpuLimitOut" class="value-out" for="viewCpuLimit">70%</output>
+        </div>
+        <input id="viewCpuLimit" type="range" min="10" max="100" step="5" value="70">
+        <p class="note">Applies immediately to in-flight and upcoming files.</p>
       </div>
     </div>
 

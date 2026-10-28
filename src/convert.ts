@@ -10,6 +10,7 @@ import path from "node:path";
 import type { Decision } from "./policy.ts";
 import { outputPathFor, type Policy } from "./policy.ts";
 import { buildEncoderArgs, sourceArgFor } from "./formats.ts";
+import { applyProcessCpuLimit } from "./cpu.ts";
 
 export type FileStatus = "converted" | "copied" | "skipped" | "failed" | "cancelled";
 
@@ -32,11 +33,19 @@ export type RunOptions = {
   magickPath: string;
   policy: Policy;
   jobs: number;
+  cpuLimit?: number;
   /**
    * Live parallel-job count. Read before every dispatch so the user can change
    * it mid-run; falls back to the start value if not supplied.
    */
   getLimit?: () => number;
+  /**
+   * Live CPU limit percentage (10 - 100). Read before every dispatch.
+   */
+  getCpuLimit?: () => number;
+  /** Mid-run child process registration for live CPU affinity updates. */
+  onChildSpawn?: (pid: number) => void;
+  onChildExit?: (pid: number) => void;
   overwrite: boolean;
   signal: AbortSignal;
   onStart: (rel: string, bytes: number) => void;
@@ -49,12 +58,24 @@ function runMagick(
   exe: string,
   args: string[],
   signal: AbortSignal,
+  cpuLimit = 70,
+  onChildSpawn?: (pid: number) => void,
+  onChildExit?: (pid: number) => void,
 ): Promise<{ code: number; signal: NodeJS.Signals | null; stderr: string }> {
   return new Promise((resolve) => {
     const child = spawn(exe, args, {
       windowsHide: true,
-      env: { ...process.env, MAGICK_THREAD_LIMIT: "1" },
+      env: {
+        ...process.env,
+        MAGICK_THREAD_LIMIT: "1",
+        OMP_NUM_THREADS: "1",
+      },
     });
+
+    if (child.pid) {
+      applyProcessCpuLimit(child.pid, cpuLimit);
+      onChildSpawn?.(child.pid);
+    }
 
     let stderr = "";
     child.stderr.on("data", (d) => {
@@ -66,12 +87,17 @@ function runMagick(
     };
     signal.addEventListener("abort", onAbort, { once: true });
 
-    child.on("error", (err) => {
+    const cleanup = () => {
       signal.removeEventListener("abort", onAbort);
+      if (child.pid) onChildExit?.(child.pid);
+    };
+
+    child.on("error", (err) => {
+      cleanup();
       resolve({ code: -1, signal: null, stderr: String(err.message ?? err) });
     });
     child.on("close", (code, exitSignal) => {
-      signal.removeEventListener("abort", onAbort);
+      cleanup();
       resolve({ code: code ?? -1, signal: exitSignal, stderr });
     });
   });
@@ -159,7 +185,15 @@ async function processOne(d: Decision, o: RunOptions): Promise<FileResult> {
         speed: o.policy.heicSpeed,
       });
 
-      const { code, signal, stderr } = await runMagick(o.magickPath, args, o.signal);
+      const cpuLimit = o.getCpuLimit ? o.getCpuLimit() : (o.cpuLimit ?? 70);
+      const { code, signal, stderr } = await runMagick(
+        o.magickPath,
+        args,
+        o.signal,
+        cpuLimit,
+        o.onChildSpawn,
+        o.onChildExit,
+      );
 
       // A user cancel also ends the child with a signal; don't misreport it as
       // an encoder crash or an out-of-memory kill.

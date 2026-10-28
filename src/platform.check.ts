@@ -25,6 +25,8 @@ import {
   IMAGEMAGICK_ROOT, isManagedInstall, isTrustedReleaseUrl,
   pickAppImageAsset, pickPortableAsset,
 } from "./imagemagick.ts";
+import { calculateAffinityMask, applyProcessCpuLimit } from "./cpu.ts";
+import { spawn } from "node:child_process";
 import * as tree from "../src/client/tree-logic.ts";
 
 let failures = 0;
@@ -405,6 +407,27 @@ await check("trusts only official GitHub release URLs", () => {
 await check("managed install detection stays inside the app folder", () => {
   assert.equal(isManagedInstall(path.join(IMAGEMAGICK_ROOT, "x", "magick.exe")), true);
   assert.equal(isManagedInstall(path.join(IMAGEMAGICK_ROOT, "..", "elsewhere", "magick")), false);
+});
+
+await check("calculates CPU affinity mask correctly for percentages", () => {
+  assert.equal(calculateAffinityMask(70, 8), 0x1Fn);
+  assert.equal(calculateAffinityMask(100, 8), 0xFFn);
+  assert.equal(calculateAffinityMask(10, 8), 0x1n);
+  assert.equal(calculateAffinityMask(50, 16), 0xFFn);
+  assert.equal(calculateAffinityMask(70, 16), 0x7FFn);
+});
+
+await check("applies CPU limit dynamically to process", () => {
+  const child = spawn(process.platform === "win32" ? "cmd.exe" : "sleep", [process.platform === "win32" ? "/c timeout 1" : "1"]);
+  const ok1 = applyProcessCpuLimit(child.pid, 70);
+  const ok2 = applyProcessCpuLimit(child.pid, 50);
+  assert.equal(typeof ok1, "boolean");
+  assert.equal(typeof ok2, "boolean");
+  if (process.platform === "win32") {
+    assert.equal(ok1, true);
+    assert.equal(ok2, true);
+  }
+  child.kill();
 });
 
 console.log(failures ? `\n${failures} platform check(s) failed` : "\nplatform OK");

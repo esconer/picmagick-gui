@@ -1447,6 +1447,13 @@ function createRunLifecycle(options) {
       if (out)
         out.textContent = String(snapshot.jobs);
     }
+    const cpuLimit = document.getElementById("cpuLimit");
+    if (cpuLimit && snapshot.cpuLimit) {
+      cpuLimit.value = String(snapshot.cpuLimit);
+      const out = document.getElementById("cpuLimitOut");
+      if (out)
+        out.textContent = `${snapshot.cpuLimit}%`;
+    }
     render();
   };
   const attach = async (jobId, replay) => {
@@ -1483,12 +1490,14 @@ function createRunLifecycle(options) {
     try {
       await options.save();
       const jobsInput = document.getElementById("jobs");
+      const cpuLimitInput = document.getElementById("cpuLimit");
       const overwrite = document.getElementById("overwrite");
       const onlyNew = document.getElementById("onlyNew");
       const response = await api("run", {
         method: "POST",
         body: {
           jobs: jobsInput?.valueAsNumber ?? 2,
+          cpuLimit: cpuLimitInput?.valueAsNumber ?? 70,
           overwrite: Boolean(overwrite?.checked),
           onlyNew: Boolean(runOptions.onlyNew ?? onlyNew?.checked),
           policy: options.policy()
@@ -1560,7 +1569,20 @@ function createRunLifecycle(options) {
       }).catch((error) => options.onError(error.message));
     }, 200);
   };
-  return { start, attach, pause, resume, cancel, setJobs };
+  let cpuLimitTimer = null;
+  const setCpuLimit = (cpuLimit) => {
+    if (!state.currentJob)
+      return;
+    if (cpuLimitTimer)
+      clearTimeout(cpuLimitTimer);
+    cpuLimitTimer = setTimeout(() => {
+      api(`jobs/${encodeURIComponent(state.currentJob ?? "")}`, {
+        method: "POST",
+        body: { cpuLimit }
+      }).catch((error) => options.onError(error.message));
+    }, 200);
+  };
+  return { start, attach, pause, resume, cancel, setJobs, setCpuLimit };
 }
 
 // src/client/views/audit.ts
@@ -2319,6 +2341,11 @@ function createRunView(actions) {
     if (document.activeElement !== viewJobs)
       viewJobs.value = jobs.value;
     $("viewJobsOut").textContent = viewJobs.value;
+    const cpuLimit = $("cpuLimit");
+    const viewCpuLimit = $("viewCpuLimit");
+    if (document.activeElement !== viewCpuLimit)
+      viewCpuLimit.value = cpuLimit.value;
+    $("viewCpuLimitOut").textContent = `${viewCpuLimit.value}%`;
   };
   $("runResults").addEventListener("click", (event) => {
     const button = event.target.closest("[data-run-action]");
@@ -2627,6 +2654,7 @@ var updateChrome = () => {
   $("freeChip").textContent = free == null ? "" : `${fmt(free)} free`;
   $("recipeMeta").textContent = state.formatSpecs[state.currentFormat]?.shortLabel ?? "—";
   paintRange("viewJobs");
+  paintRange("viewCpuLimit");
   updateRail();
   updateStartOptions();
 };
@@ -2827,6 +2855,10 @@ var updateJobsReadout = () => {
   $("jobsOut").textContent = input("jobs").value;
   paintRange("jobs");
 };
+var updateCpuLimitReadout = () => {
+  $("cpuLimitOut").textContent = `${input("cpuLimit").value}%`;
+  paintRange("cpuLimit");
+};
 var paintRange = (id) => {
   const node = input(id);
   const min = Number(node.min) || 0;
@@ -2836,7 +2868,7 @@ var paintRange = (id) => {
   node.style.setProperty("--fill", `${clamp(percent, 0, 100).toFixed(2)}%`);
 };
 var paintRanges = () => {
-  for (const id of ["minsize", "jobs", "budget", "viewJobs"])
+  for (const id of ["minsize", "jobs", "cpuLimit", "budget", "viewJobs", "viewCpuLimit"])
     paintRange(id);
 };
 var runEstimate = async () => {
@@ -3243,6 +3275,7 @@ var boot = async () => {
     setUndersize(status.policy.copyUndersized);
     updateMinSizeReadout();
     updateJobsReadout();
+    updateCpuLimitReadout();
     paintRanges();
     updateStartOptions();
     if (status.liveJobId) {
@@ -3368,6 +3401,20 @@ input("viewJobs").addEventListener("input", () => {
   updateJobsReadout();
   paintRange("viewJobs");
   runLifecycle.setJobs(input("viewJobs").valueAsNumber);
+});
+input("cpuLimit").addEventListener("input", () => {
+  updateCpuLimitReadout();
+  input("viewCpuLimit").value = input("cpuLimit").value;
+  $("viewCpuLimitOut").textContent = `${input("cpuLimit").value}%`;
+  paintRange("viewCpuLimit");
+  runLifecycle.setCpuLimit(input("cpuLimit").valueAsNumber);
+});
+input("viewCpuLimit").addEventListener("input", () => {
+  $("viewCpuLimitOut").textContent = `${input("viewCpuLimit").value}%`;
+  input("cpuLimit").value = input("viewCpuLimit").value;
+  updateCpuLimitReadout();
+  paintRange("viewCpuLimit");
+  runLifecycle.setCpuLimit(input("viewCpuLimit").valueAsNumber);
 });
 input("overwrite").addEventListener("change", updateStartOptions);
 input("onlyNew").addEventListener("change", updateStartOptions);

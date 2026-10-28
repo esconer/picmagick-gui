@@ -14,6 +14,7 @@ import { runPool } from "./convert.ts";
 import { spawn } from "node:child_process";
 import { stat } from "node:fs/promises";
 import { buildEncoderArgs, sourceArgFor, type OutputFormat } from "./formats.ts";
+import { applyProcessCpuLimit } from "./cpu.ts";
 
 export type Estimate = {
   sampleSize: number;
@@ -47,8 +48,13 @@ function magick(args: string[], exe: string): Promise<number> {
   return new Promise((resolve) => {
     const c = spawn(exe, args, {
       windowsHide: true,
-      env: { ...process.env, MAGICK_THREAD_LIMIT: "1" },
+      env: {
+        ...process.env,
+        MAGICK_THREAD_LIMIT: "1",
+        OMP_NUM_THREADS: "1",
+      },
     });
+    if (c.pid) applyProcessCpuLimit(c.pid, 70);
     c.on("error", () => resolve(-1));
     c.on("close", (code) => resolve(code ?? -1));
   });

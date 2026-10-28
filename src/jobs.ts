@@ -6,6 +6,7 @@ import type { FileResult } from "./convert.ts";
 import { runConversion } from "./convert.ts";
 import type { Decision, Policy } from "./policy.ts";
 import { writeManifest, listManifests, readManifest, undoManifest, type Manifest } from "./manifest.ts";
+import { applyProcessCpuLimit } from "./cpu.ts";
 
 export type JobState = "idle" | "running" | "paused" | "done" | "cancelled" | "failed";
 
@@ -26,6 +27,7 @@ export type Progress = {
   starting?: { rel: string; bytes: number };
   /** Files currently inside the encoder. */
   inFlight?: number;
+  cpuLimit?: number;
   summary?: Record<string, unknown>;
   message?: string;
   manifestId?: string;
@@ -42,6 +44,7 @@ export type StartOptions = {
   magickPath: string;
   policy: Policy;
   jobs: number;
+  cpuLimit?: number;
   overwrite: boolean;
   qualityLabel: number[];
 };
@@ -92,6 +95,32 @@ export class Job extends EventEmitter {
     return this.liveJobs;
   }
 
+  getJobs() {
+    return this.liveJobs;
+  }
+
+  /**
+   * Current CPU limit percentage (10 - 100).
+   *
+   * Changing this immediately adjusts processor affinity on all in-flight
+   * encoders and applies to upcoming dispatches.
+   */
+  private liveCpuLimit = 70;
+  private activePids = new Set<number>();
+  private getCpuLimit = () => this.liveCpuLimit;
+
+  setCpuLimit(n: number) {
+    this.liveCpuLimit = Math.max(10, Math.min(Math.round(n) || 70, 100));
+    for (const pid of this.activePids) {
+      applyProcessCpuLimit(pid, this.liveCpuLimit);
+    }
+    return this.liveCpuLimit;
+  }
+
+  getCpuLimitValue() {
+    return this.liveCpuLimit;
+  }
+
   private emitProgress(file?: FileResult, starting?: { rel: string; bytes: number }) {
     const elapsed = (Date.now() - this.started) / 1000;
     // Average service time across finished files, scaled by remaining work.
@@ -125,6 +154,8 @@ private total = 0;
     this.opts = opts;
     this.queue = opts.decisions;
     this.liveJobs = Math.max(1, Math.min(opts.jobs, 32));
+    this.liveCpuLimit = Math.max(10, Math.min(opts.cpuLimit ?? 70, 100));
+    this.activePids.clear();
     this.finished = new Set();
     this.done = 0;
     this.totals = { converted: 0, copied: 0, skipped: 0, failed: 0, bytes: 0 };
@@ -163,6 +194,7 @@ private total = 0;
       failed: this.totals.failed,
       bytes: this.totals.bytes,
       jobs: this.liveJobs,
+      cpuLimit: this.liveCpuLimit,
       inFlight: this.inFlight,
     };
   }
@@ -235,7 +267,11 @@ private total = 0;
         magickPath: o.magickPath,
         policy: o.policy,
         jobs: o.jobs,
+        cpuLimit: this.liveCpuLimit,
         getLimit: this.getLimit,
+        getCpuLimit: this.getCpuLimit,
+        onChildSpawn: (pid) => this.activePids.add(pid),
+        onChildExit: (pid) => this.activePids.delete(pid),
         overwrite: o.overwrite,
         signal: this.controller.signal,
         onStart: (rel, bytes) => {

@@ -359,6 +359,7 @@ export type RunResponse = {
   jobId: string;
   total: number;
   jobs: number;
+  cpuLimit?: number;
   outputFormat: OutputFormat;
 };
 
@@ -374,6 +375,7 @@ export type JobSnapshot = {
   failed: number;
   bytes: number;
   jobs: number;
+  cpuLimit?: number;
   inFlight: number;
 };
 
