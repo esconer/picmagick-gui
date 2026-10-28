@@ -25,7 +25,7 @@ import { parseFormatSupport } from "./paths.ts";
 import { readManifest, writeManifest } from "./manifest.ts";
 import { analyseSync } from "./sync.ts";
 import type { ScannedFile } from "./scan.ts";
-import * as destination from "../public/formatlogic.js";
+import * as destination from "../src/client/format-logic.ts";
 
 let failures = 0;
 

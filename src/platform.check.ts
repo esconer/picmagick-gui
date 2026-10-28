@@ -25,7 +25,7 @@ import {
   IMAGEMAGICK_ROOT, isManagedInstall, isTrustedReleaseUrl,
   pickAppImageAsset, pickPortableAsset,
 } from "./imagemagick.ts";
-import * as tree from "../public/treelogic.js";
+import * as tree from "../src/client/tree-logic.ts";
 
 let failures = 0;
 

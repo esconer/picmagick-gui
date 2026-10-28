@@ -1,0 +1,1376 @@
+/**
+ * Browser entrypoint.
+ *
+ * This is the only module that mutates server policy. Views ask for actions
+ * through the small ViewActions contract; the API remains the source of every
+ * count, byte total, and support decision.
+ */
+import { api } from "./api";
+import {
+  $,
+  clamp,
+  closeModal,
+  count,
+  debounce,
+  dur,
+  escapeHtml,
+  fmt,
+  icon,
+  input,
+  middlePath,
+  modKey,
+  openModal,
+  shortVersion,
+  setWidth,
+  toast,
+} from "./dom";
+import { nextDestinationOnFormatChange } from "./format-logic";
+import { createFormatUi, type FormatUi } from "./format-ui";
+import { createLibrary, type LibraryController } from "./library";
+import { createPlan, type PlanController } from "./plan";
+import { createRunLifecycle, type RunLifecycle } from "./run-lifecycle";
+import { state } from "./state";
+import type {
+  CompareResponse,
+  Estimate,
+  HealthReport,
+  InstallProgress,
+  JobSnapshot,
+  ManifestSummary,
+  OutputFormat,
+  Policy,
+  PreviewResponse,
+  ScannedFile,
+  ScanResult,
+  Status,
+  UndoResult,
+  UpdateStatus,
+  VerifyResponse,
+} from "./types";
+import { createAuditView, type AuditViewController } from "./views/audit";
+import { createCompareView, type CompareViewController } from "./views/compare";
+import { createHealthView, type HealthViewController } from "./views/health";
+import { createRunView, type RunViewController } from "./views/run";
+import { createRunsView, type RunsViewController } from "./views/runs";
+import type { ConfirmOptions, ViewActions } from "./views/shared";
+
+// --------------------------------------------------------------------------
+// Local response shapes
+// --------------------------------------------------------------------------
+
+type ValidateResponse =
+  | { ok: true; exists: boolean; isDirectory: boolean }
+  | { ok: false; error: string };
+
+type PickResponse = { path: string | null };
+
+type ConfigResponse = {
+  ok: true;
+  sourceRoot: string;
+  destination: string;
+  needsScan: boolean;
+};
+
+type InstallResponse = {
+  ok: true;
+  version: string;
+  folder: string;
+};
+
+const THEME_IDS = ["midnight", "daylight", "ink", "sepia", "nord", "rose"] as const;
+type ThemeId = (typeof THEME_IDS)[number];
+type ThemeChoice = ThemeId | "auto";
+
+// --------------------------------------------------------------------------
+// Module state
+// --------------------------------------------------------------------------
+
+let library: LibraryController;
+let formatUi: FormatUi;
+let plan: PlanController;
+let runLifecycle: RunLifecycle;
+let runView: RunViewController;
+let compareView: CompareViewController;
+let runsView: RunsViewController;
+let healthView: HealthViewController;
+let auditView: AuditViewController;
+
+let previewTimer: ReturnType<typeof setTimeout> | null = null;
+let extEnabled: Record<string, boolean> = {};
+let scanning = false;
+let themeChoice: ThemeChoice = "auto";
+let previewSeq = 0;
+let imStatus: UpdateStatus | null = null;
+let installing = false;
+
+const baseName = (value: string): string => {
+  const trimmed = value.replace(/[\\/]+$/, "");
+  if (!trimmed) return value;
+  return trimmed.split(/[\\/]/).pop() ?? trimmed;
+};
+
+const platformName = (platform: string): string => {
+  if (platform === "win32") return "Windows";
+  if (platform === "linux") return "Linux";
+  if (platform === "darwin") return "macOS";
+  return platform || "Desktop";
+};
+
+const formatError = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+// --------------------------------------------------------------------------
+// Policy + config
+// --------------------------------------------------------------------------
+
+const policy = (): Policy => ({
+  excludedFolders: [...state.excluded],
+  includedFolders: [...state.included],
+  excludedFiles: [...state.excludedFiles],
+  includedFiles: [...state.includedFiles],
+  extEnabled: { ...extEnabled },
+  minSizeBytes: Math.round(input("minsize").valueAsNumber * 1024 * 1024),
+  copyUndersized: input("copyUndersized").checked,
+  includeRaw: input("includeRaw").checked,
+  outputFormat: state.currentFormat,
+  qualities: [input("quality").valueAsNumber],
+  flattenGif: input("flattenGif").checked,
+  heicSpeed: input("heicSpeed").valueAsNumber,
+});
+
+const budgetBytes = (): number =>
+  Math.max(1, Math.round(input("budget").valueAsNumber)) * 1024 ** 3;
+
+const save = async (): Promise<void> => {
+  const destination = input("destination").value.trim();
+  await api<ConfigResponse>("config", {
+    method: "POST",
+    body: {
+      destination,
+      budgetBytes: budgetBytes(),
+      policy: policy(),
+    },
+  });
+  if (state.status) state.status.destination = destination;
+};
+
+const schedulePreview = debounce((): void => {
+  void refreshPreview();
+}, 180);
+
+const refreshPreview = async (): Promise<void> => {
+  if (previewTimer) {
+    clearTimeout(previewTimer);
+    previewTimer = null;
+  }
+  if (!state.tree) return;
+
+  const seq = ++previewSeq;
+  state.previewSeq = seq;
+  state.previewBusy = true;
+  try {
+    await save();
+    const preview = await api<PreviewResponse>("preview", {
+      method: "POST",
+      body: { policy: policy() },
+    });
+    if (seq !== previewSeq) return;
+    state.preview = preview;
+    state.lastSync = null;
+    state.previewBusy = false;
+    plan.render();
+    updateChrome();
+  } catch (error) {
+    if (seq !== previewSeq) return;
+    state.previewBusy = false;
+    plan.render();
+    updateChrome();
+    toast(formatError(error), "danger");
+  }
+};
+
+const refreshStatus = async (): Promise<Status | null> => {
+  try {
+    const status = await api<Status>("status");
+    applyStatusMeta(status);
+    formatUi.refreshCards();
+    return status;
+  } catch (error) {
+    toast(formatError(error), "danger");
+    return null;
+  }
+};
+
+// --------------------------------------------------------------------------
+// Status + chrome
+// --------------------------------------------------------------------------
+
+const applyStatusMeta = (status: Status): void => {
+  state.status = status;
+  const destination = input("destination");
+  if (document.activeElement !== destination) destination.value = status.destination;
+  const source = input("sourceRoot");
+  if (document.activeElement !== source) source.value = status.sourceRoot;
+
+  const budget = clamp(Math.round(status.budgetBytes / 1024 ** 3), 1, 100);
+  input("budget").value = String(budget);
+  paintRange("budget");
+  $("budgetOut").textContent = `${budget} GB`;
+
+  const freeBytes = status.freeBytes;
+  $("freeChip").textContent = freeBytes == null ? "" : `${fmt(freeBytes)} free`;
+  $("freeChip").title = freeBytes == null
+    ? "Free space on the destination volume is unavailable"
+    : `Free space on the destination volume: ${status.freeLabel}`;
+  $("freeLine").textContent = freeBytes == null
+    ? "Free space on the destination volume is unavailable."
+    : `Free on destination volume: ${status.freeLabel}`;
+
+  $("statusPlatform").textContent = platformName(status.platform);
+  $("statusMagick").textContent = status.magick ? shortVersion(status.magick.version) : "No ImageMagick";
+  $("magickLine").textContent = status.magick
+    ? `ImageMagick ${shortVersion(status.magick.version)}`
+    : "ImageMagick not found";
+  $("envChip").title = status.magick
+    ? `${status.magick.path}${status.magick.libheif ? ` · libheif ${status.magick.libheif}` : ""}`
+    : "ImageMagick is required to convert photos";
+
+  const healthDot = $("healthDot");
+  healthDot.className = "dot " + (status.magick?.avifWritable ? "ok" : status.magick ? "warn" : "bad");
+
+  $("libraryName").textContent = status.sourceRoot ? baseName(status.sourceRoot) : "No library";
+  $("libraryPill").title = status.sourceRoot || "Choose a source folder";
+  $("stepSourceMeta").textContent = status.scanned
+    ? `${status.fileCount.toLocaleString()} files`
+    : "No folder";
+  $("statusVersion").textContent = "v1.1.0";
+
+  if (status.canPickFolder === false) {
+    $("btnPickSource").classList.add("hidden");
+    $("btnPick").classList.add("hidden");
+    input("sourceRoot").placeholder = "Type the folder path";
+    input("destination").placeholder = "Type the output path";
+  }
+};
+
+const selectedSummary = (): { files: ScannedFile[]; bytes: number } => {
+  const files = library.selected();
+  return { files, bytes: files.reduce((sum, file) => sum + file.size, 0) };
+};
+
+const updateRail = (): void => {
+  const selected = selectedSummary();
+  const total = state.lastScan?.totals.count ?? 0;
+  const p = state.preview;
+  const spec = state.formatSpecs[state.currentFormat];
+
+  $("stepSourceMeta").textContent = state.tree
+    ? `${total.toLocaleString()} files`
+    : scanning
+      ? "Scanning…"
+      : "No folder";
+  $("stepSelectMeta").textContent = state.tree
+    ? `${selected.files.length.toLocaleString()} of ${total.toLocaleString()}`
+    : "None";
+  $("stepOutputMeta").textContent = spec
+    ? `${spec.shortLabel} ${$("qualityOut").textContent}`
+    : "—";
+  $("stepReviewMeta").textContent = p
+    ? p.budget.fits ? fmt(p.estOutputBytes) : "Over budget"
+    : state.tree ? "Waiting" : "Waiting";
+
+  const runPct = state.run.total > 0 ? Math.round((state.run.done / state.run.total) * 100) : 0;
+  $("stepRunMeta").textContent = state.running
+    ? state.run.state === "paused" ? "Paused" : `Running ${runPct}%`
+    : state.run.state === "done" ? "Done"
+      : state.run.state === "failed" ? "Failed"
+        : state.run.state === "cancelled" ? "Cancelled"
+          : "Ready";
+
+  const states: Record<string, "current" | "done" | "pending"> = {
+    source: state.tree ? "done" : "current",
+    select: state.tree ? (selected.files.length ? "done" : "current") : "pending",
+    output: state.tree && selected.files.length && spec ? "done" : selected.files.length ? "current" : "pending",
+    review: state.running ? "done" : p ? "current" : selected.files.length ? "current" : "pending",
+    run: state.running ? "current" : ["done", "failed", "cancelled"].includes(state.run.state) ? "done" : "pending",
+  };
+  const numbers: Record<string, string> = { source: "1", select: "2", output: "3", review: "4", run: "5" };
+  for (const [step, value] of Object.entries(states)) {
+    const button = document.getElementById(`step${step.charAt(0).toUpperCase()}${step.slice(1)}`);
+    if (!button) continue;
+    button.dataset.state = value;
+    const iconNode = button.querySelector<HTMLElement>(".rail-icon");
+    if (iconNode) {
+      iconNode.innerHTML = value === "done" ? icon("check", 12) : numbers[step];
+    }
+  }
+};
+
+const updateChrome = (): void => {
+  const selected = selectedSummary();
+  const total = state.lastScan?.totals.count ?? 0;
+  if (state.tree) {
+    $("statusSelection").textContent =
+      `${selected.files.length.toLocaleString()} of ${total.toLocaleString()} selected · ${fmt(selected.bytes)}`;
+  } else {
+    $("statusSelection").textContent = "No scan";
+  }
+  $("statusScan").textContent = scanning
+    ? "Scanning…"
+    : state.running
+      ? state.run.state === "paused" ? "Paused" : `Running · ${state.run.done.toLocaleString()} of ${state.run.total.toLocaleString()}`
+      : state.lastScan
+        ? `Scanned ${state.lastScan.durationMs} ms · ${total.toLocaleString()} files`
+        : "Ready";
+  $("statusMagick").textContent = state.status?.magick ? shortVersion(state.status.magick.version) : "No ImageMagick";
+  $("sourceInfo").textContent = state.lastScan
+    ? `${state.lastScan.durationMs} ms · ${state.lastScan.totals.count.toLocaleString()} files`
+    : "";
+  $("libraryName").textContent = input("sourceRoot").value.trim()
+    ? baseName(input("sourceRoot").value.trim())
+    : "No library";
+  const free = state.preview?.freeBytes ?? state.status?.freeBytes ?? null;
+  $("freeChip").textContent = free == null ? "" : `${fmt(free)} free`;
+  $("recipeMeta").textContent = state.formatSpecs[state.currentFormat]?.shortLabel ?? "—";
+  paintRange("viewJobs");
+  updateRail();
+  updateStartOptions();
+};
+
+const updateStartOptions = (): void => {
+  const onlyNew = input("onlyNew").checked;
+  const hint = document.getElementById("startHint");
+  if (hint && state.preview && !state.running && onlyNew && state.preview.convert + state.preview.copy > 0) {
+    hint.textContent = "Skip already converted files is on — the run will check the destination first.";
+  }
+};
+
+// --------------------------------------------------------------------------
+// Source + destination
+// --------------------------------------------------------------------------
+
+const showSourceError = (message: string, kind: "bad" | "warn" = "bad"): void => {
+  const node = $("sourceError");
+  node.className = `inline-msg ${kind}`;
+  node.textContent = message;
+};
+
+const clearSourceError = (): void => {
+  const node = $("sourceError");
+  node.className = "inline-msg hidden";
+  node.textContent = "";
+};
+
+const showDestError = (message: string): void => {
+  const node = $("destError");
+  node.className = "inline-msg bad";
+  node.textContent = message;
+};
+
+const clearDestError = (): void => {
+  const node = $("destError");
+  node.className = "inline-msg hidden";
+  node.textContent = "";
+};
+
+const applySource = async (): Promise<void> => {
+  const source = input("sourceRoot").value.trim();
+  const previousSource = state.status?.sourceRoot ?? "";
+  if (!source) {
+    showSourceError("Enter a folder path.");
+    input("sourceRoot").focus();
+    return;
+  }
+
+  scanning = true;
+  clearSourceError();
+  $<HTMLButtonElement>("btnScan").disabled = true;
+  $("btnScan").textContent = "Scanning…";
+  $("sourceInfo").textContent = "Validating…";
+  updateChrome();
+
+  try {
+    const check = await api<ValidateResponse>("validate", {
+      method: "POST",
+      body: { sourceRoot: source, destination: input("destination").value.trim() },
+    });
+    if (!check.ok) {
+      throw new Error(check.error || "That folder is not readable.");
+    }
+    if (!check.isDirectory) throw new Error("That path is a file, not a folder.");
+
+    await api<ConfigResponse>("config", {
+      method: "POST",
+      body: {
+        sourceRoot: source,
+        destination: input("destination").value.trim(),
+        budgetBytes: budgetBytes(),
+        policy: policy(),
+      },
+    });
+    if (state.status) {
+      state.status.sourceRoot = source;
+      state.status.scanned = false;
+    }
+
+    const scan = await api<ScanResult>("scan", {
+      method: "POST",
+      body: { sourceRoot: source },
+    });
+    state.status && (state.status.scanned = true);
+    library.setScan(scan, true);
+    state.lastEstimate = null;
+    state.lastSync = null;
+    state.preview = null;
+    updateChrome();
+    await refreshPreview();
+    toast(`Scanned ${scan.totals.count.toLocaleString()} files in ${(scan.durationMs / 1000).toFixed(1)}s.`, "success");
+    if (scan.riskyNames.length) {
+      showSourceError(
+        `${scan.riskyNames.length} folder name(s) can break copied paths: ${scan.riskyNames.slice(0, 2).map((entry) => entry.rel).join(", ")}. Using a non-standard slash character.`,
+        "warn",
+      );
+    }
+  } catch (error) {
+    showSourceError(formatError(error));
+    if (!state.tree) {
+      $("scanSummary").textContent = "not scanned";
+    } else if (previousSource) {
+      // The scan still describes the old source; keep the field honest.
+      input("sourceRoot").value = previousSource;
+    }
+  } finally {
+    scanning = false;
+    $<HTMLButtonElement>("btnScan").disabled = false;
+    $("btnScan").textContent = "Scan";
+    updateChrome();
+  }
+};
+
+const applyDestination = async (previous: string): Promise<void> => {
+  const destination = input("destination").value.trim();
+  if (!destination) {
+    showDestError("Choose an output folder.");
+    input("destination").value = previous;
+    return;
+  }
+  clearDestError();
+  try {
+    await save();
+    await refreshPreview();
+  } catch (error) {
+    input("destination").value = previous;
+    showDestError(formatError(error));
+    toast(formatError(error), "danger");
+  }
+};
+
+const pickFolder = async (kind: "source" | "destination"): Promise<void> => {
+  try {
+    const result = await api<PickResponse>("pick", {
+      method: "POST",
+      body: { title: kind === "source" ? "Choose the source photo folder" : "Choose the output folder" },
+    });
+    if (!result.path) return;
+    if (kind === "source") {
+      input("sourceRoot").value = result.path;
+      await applySource();
+    } else {
+      const previous = input("destination").value;
+      input("destination").value = result.path;
+      await applyDestination(previous);
+    }
+  } catch (error) {
+    toast(formatError(error), "danger");
+  }
+};
+
+// --------------------------------------------------------------------------
+// Format selection
+// --------------------------------------------------------------------------
+
+const chooseFormat = async (id: OutputFormat): Promise<void> => {
+  if (state.running || state.starting) return;
+  if (id === state.currentFormat) return;
+  const oldId = state.currentFormat;
+  const oldSpec = state.formatSpecs[oldId];
+  const newSpec = state.formatSpecs[id];
+  if (!oldSpec || !newSpec) return;
+
+  const oldMemory = state.formatMemory[oldId] ?? {
+    quality: input("quality").valueAsNumber,
+    speed: input("heicSpeed").valueAsNumber,
+  };
+  state.formatMemory[oldId] = {
+    quality: input("quality").valueAsNumber,
+    speed: input("heicSpeed").valueAsNumber,
+  };
+
+  const oldDestination = input("destination").value;
+  const nextDestination = nextDestinationOnFormatChange(
+    oldDestination,
+    input("sourceRoot").value,
+    oldSpec.destinationSuffix,
+    newSpec.destinationSuffix,
+    state.status?.caseInsensitive ?? true,
+  );
+
+  formatUi.apply(id, true);
+  if (nextDestination !== oldDestination) {
+    input("destination").value = nextDestination;
+    toast(`Destination updated to ${nextDestination}.`, "info");
+  }
+
+  try {
+    await save();
+    await refreshPreview();
+  } catch (error) {
+    state.formatMemory[oldId] = oldMemory;
+    input("destination").value = oldDestination;
+    formatUi.apply(oldId, true);
+    toast(formatError(error), "danger");
+  }
+};
+
+// --------------------------------------------------------------------------
+// Extension toggles + simple controls
+// --------------------------------------------------------------------------
+
+const renderExtToggles = (): void => {
+  const host = $("extToggles");
+  host.innerHTML = "";
+  for (const [ext, enabled] of Object.entries(extEnabled)) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "ext-chip" + (enabled ? " on" : "");
+    chip.textContent = `.${ext}`;
+    chip.title = `${enabled ? "Include" : "Skip"} .${ext} files`;
+    chip.addEventListener("click", () => {
+      extEnabled[ext] = !extEnabled[ext];
+      chip.classList.toggle("on", extEnabled[ext]);
+      chip.title = `${extEnabled[ext] ? "Include" : "Skip"} .${ext} files`;
+      schedulePreview();
+    });
+    host.append(chip);
+  }
+};
+
+const setUndersize = (copy: boolean): void => {
+  input("copyUndersized").checked = copy;
+  $("copyUnder").setAttribute("aria-pressed", String(copy));
+  $("skipUnder").setAttribute("aria-pressed", String(!copy));
+  $("minsizeNote").textContent = copy
+    ? "Files under the floor are copied byte-for-byte, so no pixels are lost."
+    : "Files under the floor are skipped. Nothing is written for them.";
+  schedulePreview();
+};
+
+const updateMinSizeReadout = (): void => {
+  $("minsizeOut").textContent = `${input("minsize").valueAsNumber.toFixed(2)} MB`;
+};
+
+const updateJobsReadout = (): void => {
+  $("jobsOut").textContent = input("jobs").value;
+  paintRange("jobs");
+};
+
+const paintRange = (id: string): void => {
+  const node = input(id);
+  const min = Number(node.min) || 0;
+  const max = Number(node.max) || 100;
+  const value = node.valueAsNumber;
+  const percent = max > min ? ((value - min) / (max - min)) * 100 : 0;
+  node.style.setProperty("--fill", `${clamp(percent, 0, 100).toFixed(2)}%`);
+};
+
+const paintRanges = (): void => {
+  for (const id of ["minsize", "jobs", "budget", "viewJobs"]) paintRange(id);
+};
+
+// --------------------------------------------------------------------------
+// Estimate
+// --------------------------------------------------------------------------
+
+const runEstimate = async (): Promise<void> => {
+  if (!state.tree) {
+    toast("Scan a library first.", "warning");
+    return;
+  }
+  const box = $("estimateBox");
+  box.classList.remove("hidden");
+  box.innerHTML = `<h4>Estimate <small>sampling real files</small></h4>
+    <p class="empty-note">Encoding up to 120 images at the current recipe…</p>`;
+  try {
+    const estimate = await api<Estimate>("estimate", {
+      method: "POST",
+      body: {
+        sampleSize: 120,
+        jobs: clamp(input("jobs").valueAsNumber, 1, 16),
+        policy: policy(),
+      },
+    });
+    state.lastEstimate = estimate;
+    const ratio = estimate.ratio > 0 ? `${(1 / estimate.ratio).toFixed(1)}:1` : "—";
+    box.innerHTML = `<h4>Estimate <small>${estimate.sampleSize.toLocaleString()} files sampled · ${escapeHtml(state.formatSpecs[estimate.format]?.shortLabel ?? estimate.format)}</small></h4>
+      <dl class="kv">
+        <dt>Measured ratio</dt><dd class="mono">${ratio}</dd>
+        <dt>Mean output</dt><dd class="mono">${fmt(estimate.meanOutputBytes)}</dd>
+        <dt>Projected output</dt><dd class="mono">${fmt(estimate.projectedOutputBytes)}</dd>
+        <dt>Projected time</dt><dd class="mono">${dur(estimate.projectedSeconds)}</dd>
+        <dt>Method</dt><dd>${estimate.method === "sampled" ? "Sampled encode" : "Flat ratio"} · ${dur(estimate.durationMs / 1000)}</dd>
+      </dl>`;
+    plan.render();
+    await refreshPreview();
+  } catch (error) {
+    box.innerHTML = `<h4>Estimate</h4><p class="inline-msg">${escapeHtml(formatError(error))}</p>`;
+  }
+};
+
+// --------------------------------------------------------------------------
+// Undo + compare + verify
+// --------------------------------------------------------------------------
+
+const undoManifest = async (id: string, summary?: ManifestSummary): Promise<void> => {
+  const detail = summary
+    ? `${summary.converted.toLocaleString()} converted and ${summary.copied.toLocaleString()} copied files (${fmt(summary.bytes)}) are recorded in this manifest.`
+    : `Every output recorded in manifest ${id} is a candidate.`;
+  const ok = await ask({
+    title: "Undo this run?",
+    body: `<p class="modal-copy">${escapeHtml(detail)}</p>
+      <p class="modal-copy">Only files recorded in the manifest are removed. Files outside the destination, or files changed since the run, are refused for safety. The source library is never touched.</p>`,
+    confirmLabel: "Remove run outputs",
+    danger: true,
+  });
+  if (!ok) return;
+  try {
+    const result = await api<UndoResult>("undo", { method: "POST", body: { id } });
+    const refused = result.refused ? ` · ${result.refused.toLocaleString()} refused for safety` : "";
+    const errors = result.errors.length ? ` · ${result.errors.length.toLocaleString()} errors` : "";
+    toast(`Removed ${result.removed.toLocaleString()} files, freed ${fmt(result.bytesFreed)}${refused}${errors}.`, "success");
+    if (state.lastManifestId === id) {
+      state.lastManifestId = null;
+      state.lastSummary = null;
+      runView.renderDock();
+      if (state.view === "run") runView.renderView();
+    }
+    await refreshPreview();
+    await refreshStatus();
+  } catch (error) {
+    toast(formatError(error), "danger");
+  }
+};
+
+const verifyJob = async (jobId: string): Promise<VerifyResponse> =>
+  api<VerifyResponse>("verify", { method: "POST", body: { jobId } });
+
+const runCompare = async (rel: string): Promise<CompareResponse> => {
+  const spec = state.formatSpecs[state.currentFormat];
+  return api<CompareResponse>("compare", {
+    method: "POST",
+    body: {
+      rel,
+      format: state.currentFormat,
+      qualities: spec?.compareQualities ?? [30, 50, 60, 70, 80],
+    },
+  });
+};
+
+// --------------------------------------------------------------------------
+// Modal + confirm
+// --------------------------------------------------------------------------
+
+let confirmResolve: ((ok: boolean) => void) | null = null;
+
+const setModalFoot = (html: string): void => {
+  const foot = $("modalFoot");
+  if (!html) {
+    foot.classList.add("hidden");
+    foot.innerHTML = "";
+    return;
+  }
+  foot.innerHTML = html;
+  foot.classList.remove("hidden");
+};
+
+const plainModal = (title: string, html: string, size: "sm" | "md" | "lg" = "md"): void => {
+  setModalFoot("");
+  openModal(title, html, size);
+};
+
+const settleConfirm = (ok: boolean): void => {
+  const resolve = confirmResolve;
+  confirmResolve = null;
+  closeModal();
+  setModalFoot("");
+  resolve?.(ok);
+};
+
+const ask = (opts: ConfirmOptions): Promise<boolean> => {
+  if (confirmResolve) settleConfirm(false);
+  openModal(opts.title, opts.body, "sm");
+  setModalFoot(
+    `<button id="modalCancel" class="btn ghost" type="button">${escapeHtml(opts.cancelLabel ?? "Cancel")}</button>` +
+    `<button id="modalConfirm" class="btn ${opts.danger ? "danger" : "primary"}" type="button">${escapeHtml(opts.confirmLabel)}</button>`,
+  );
+  $("modalCancel").addEventListener("click", () => settleConfirm(false));
+  $("modalConfirm").addEventListener("click", () => settleConfirm(true));
+  return new Promise((resolve) => {
+    confirmResolve = resolve;
+  });
+};
+
+// --------------------------------------------------------------------------
+// View switching
+// --------------------------------------------------------------------------
+
+type ViewName = "workspace" | "run" | "compare" | "runs" | "health";
+
+const switchView = (view: ViewName): void => {
+  state.view = view;
+  $("workspace").classList.toggle("hidden", view !== "workspace");
+  $("viewRun").classList.toggle("hidden", view !== "run");
+  $("viewCompare").classList.toggle("hidden", view !== "compare");
+  $("viewRuns").classList.toggle("hidden", view !== "runs");
+  $("viewHealth").classList.toggle("hidden", view !== "health");
+  if (view === "run") runView.renderView();
+};
+
+// --------------------------------------------------------------------------
+// Actions passed to views
+// --------------------------------------------------------------------------
+
+const actions: ViewActions = {
+  switchView,
+  refreshPreview,
+  refreshTree: () => {
+    library.refresh();
+    updateChrome();
+  },
+  policy,
+  toast,
+  confirm: ask,
+  startRun: (opts) => runLifecycle.start(opts),
+  undoManifest,
+  verifyJob,
+  runCompare,
+  selectedFiles: () => library.selected(),
+  setQuality: (quality) => formatUi.setQuality(quality),
+  checkMagick: (force) => checkMagick(force),
+  refreshStatusMagick: async () => {
+    await refreshStatus();
+  },
+  installMagick: () => installMagick(),
+};
+
+// --------------------------------------------------------------------------
+// ImageMagick update + install
+// --------------------------------------------------------------------------
+
+const imKind = (im: UpdateStatus): string =>
+  im.assetKind === "appimage" ? "AppImage" : "portable build";
+
+const renderImPill = (im: UpdateStatus): void => {
+  const pill = $("imUpdate");
+  if (im.updateAvailable && im.latest) {
+    pill.classList.remove("hidden");
+    pill.classList.toggle("warn", Boolean(im.installed));
+    pill.textContent = im.installed
+      ? `ImageMagick ${im.latest.version} available`
+      : `Download ImageMagick ${im.latest.version}`;
+    pill.title = im.installed
+      ? `Installed ${shortVersion(im.installed.version)} — click to update`
+      : `ImageMagick was not found — click to download the ${imKind(im)}`;
+  } else if (!im.installed) {
+    pill.classList.remove("hidden");
+    pill.classList.add("warn");
+    pill.textContent = "ImageMagick not found";
+    pill.title = im.supported === false
+      ? "Install ImageMagick 7 with AVIF support from your distribution"
+      : `Click to download the ${imKind(im)}`;
+  } else {
+    pill.classList.add("hidden");
+  }
+};
+
+const checkMagick = async (force = false): Promise<UpdateStatus> => {
+  const im = await api<UpdateStatus>(`imagemagick/check${force ? "?force=1" : ""}`);
+  imStatus = im;
+  state.imStatus = im;
+  renderImPill(im);
+  return im;
+};
+
+const startInstall = async (im: UpdateStatus): Promise<void> => {
+  if (installing) return;
+  installing = true;
+  plainModal(
+    "Installing ImageMagick",
+    `<p class="modal-copy">Downloading and verifying ImageMagick ${escapeHtml(im.latest?.version ?? "")}…</p>
+     <div class="meter" style="margin-top:14px"><div id="imInstallFill"></div></div>
+     <p id="imInstallNote" class="note" aria-live="polite">Starting the download…</p>`,
+    "sm",
+  );
+
+  const timer = window.setInterval(() => {
+    void (async () => {
+      try {
+        const p = await api<InstallProgress>("imagemagick/progress");
+        const note = document.getElementById("imInstallNote");
+        const fill = document.getElementById("imInstallFill");
+        if (note && p.message) note.textContent = p.message;
+        if (fill) setWidth(fill, Math.max(0, Math.min(100, p.percent)) / 100);
+      } catch {
+        /* the install POST reports the real error */
+      }
+    })();
+  }, 700);
+
+  try {
+    const result = await api<InstallResponse>("imagemagick/install", {
+      method: "POST",
+      body: {},
+    });
+    try {
+      localStorage.removeItem("imUpdateDismissed");
+    } catch {
+      /* private mode */
+    }
+    toast(`ImageMagick ${result.version} installed. Reloading…`, "success");
+    window.setTimeout(() => window.location.reload(), 1200);
+  } catch (error) {
+    const note = document.getElementById("imInstallNote");
+    const fill = document.getElementById("imInstallFill");
+    if (note) {
+      note.className = "inline-msg bad";
+      note.textContent = formatError(error);
+    }
+    if (fill) fill.classList.add("over");
+    toast(formatError(error), "danger");
+    installing = false;
+  } finally {
+    window.clearInterval(timer);
+  }
+};
+
+const openMagickModal = (im: UpdateStatus): void => {
+  const installed = im.installed
+    ? `Installed <b>${escapeHtml(shortVersion(im.installed.version))}</b>${im.installed.avifWritable ? "" : " · AVIF unavailable"}`
+    : `<span class="bad">ImageMagick was not found on this device.</span>`;
+  const latest = im.latest
+    ? `Latest on GitHub <b>${escapeHtml(im.latest.version)}</b>`
+    : im.online
+      ? "Latest version: unknown"
+      : "Could not reach github.com.";
+  const rows: string[] = [];
+  if (im.latest) {
+    rows.push(`<div class="fact-row"><span>${imKind(im)}</span><span class="mono">${escapeHtml(im.latest.asset.name)}</span></div>`);
+    rows.push(`<div class="fact-row"><span>Download size</span><span>${fmt(im.latest.asset.size)}</span></div>`);
+    rows.push(`<div class="fact-row"><span>Install into</span><span class="mono" title="${escapeHtml(im.installDir)}">${escapeHtml(im.installDir)}</span></div>`);
+  }
+  const notes: string[] = [];
+  if (!im.supported) {
+    notes.push("Automatic downloads are not available on this build. Install ImageMagick 7 with AVIF support using your package manager.");
+  } else if (!im.online) {
+    notes.push(`Could not reach github.com${im.error ? `: ${im.error}` : ""}. You can download the ${imKind(im)} manually and place it in the folder above.`);
+  } else if (im.installed && !im.updateAvailable) {
+    notes.push("ImageMagick is up to date.");
+  }
+
+  plainModal(
+    im.installed ? "ImageMagick" : "ImageMagick is not installed",
+    `<p class="modal-copy">${installed} &nbsp;·&nbsp; ${latest}</p>
+     ${rows.length ? `<div class="fact-list" style="margin-top:12px">${rows.join("")}</div>` : ""}
+     ${notes.map((note) => `<p class="note">${escapeHtml(note)}</p>`).join("")}
+     <p class="note">A managed build lives inside this app's data folder. Originals are never touched.</p>`,
+    "sm",
+  );
+
+  const canInstall = im.supported && im.latest && (im.updateAvailable || !im.installed);
+  setModalFoot(
+    `<button id="imLater" class="btn ghost" type="button">${im.updateAvailable ? "Not now" : "Close"}</button>` +
+    `<button id="imRecheck" class="btn ghost" type="button">Check again</button>` +
+    (canInstall ? `<button id="imInstall" class="btn primary" type="button">${im.installed ? "Download update" : "Install ImageMagick"}</button>` : ""),
+  );
+
+  $("imLater").addEventListener("click", () => {
+    if (im.installed && im.updateAvailable && im.latest) {
+      try {
+        localStorage.setItem("imUpdateDismissed", im.latest.version);
+      } catch {
+        /* private mode */
+      }
+    }
+    closeModal();
+    setModalFoot("");
+  });
+
+  $("imRecheck").addEventListener("click", () => {
+    const button = $<HTMLButtonElement>("imRecheck");
+    button.disabled = true;
+    button.textContent = "Checking…";
+    void (async () => {
+      try {
+        const next = await checkMagick(true);
+        openMagickModal(next);
+      } catch (error) {
+        button.disabled = false;
+        button.textContent = "Check again";
+        toast(formatError(error), "danger");
+      }
+    })();
+  });
+
+  document.getElementById("imInstall")?.addEventListener("click", () => {
+    void startInstall(im);
+  });
+};
+
+const installMagick = async (): Promise<void> => {
+  if (installing) return;
+  try {
+    const im = imStatus ?? await checkMagick(false);
+    openMagickModal(im);
+  } catch (error) {
+    toast(formatError(error), "danger");
+  }
+};
+
+// --------------------------------------------------------------------------
+// About + quit
+// --------------------------------------------------------------------------
+
+const openAbout = (): void => {
+  const status = state.status;
+  plainModal(
+    "About picmagick-gui",
+    `<p class="modal-copy">A local-first photo converter. The source library is only ever read; every output is written to a separate destination and recorded in an undoable manifest.</p>
+     <div class="fact-list">
+       <div class="fact-row"><span>Version</span><span>v1.1.0</span></div>
+       <div class="fact-row"><span>Platform</span><span>${escapeHtml(platformName(status?.platform ?? ""))} · ${escapeHtml(status?.arch ?? "—")}</span></div>
+       <div class="fact-row"><span>ImageMagick</span><span>${status?.magick ? escapeHtml(shortVersion(status.magick.version)) : "not found"}</span></div>
+       <div class="fact-row"><span>Destination</span><span class="mono" title="${escapeHtml(status?.destination ?? "")}">${escapeHtml(middlePath(status?.destination ?? "—", 56))}</span></div>
+     </div>
+     <h3 style="margin:18px 0 8px">Keyboard</h3>
+     <div class="fact-list">
+       <div class="fact-row"><span>${escapeHtml(modKey())} + Enter</span><span>Start conversion</span></div>
+       <div class="fact-row"><span>/</span><span>Focus the library filter</span></div>
+       <div class="fact-row"><span>Esc</span><span>Close the current view, drawer, or dialog</span></div>
+     </div>`,
+    "sm",
+  );
+};
+
+const showServerStopped = (): void => {
+  plainModal(
+    "Server closed",
+    `<p class="modal-copy ok">picmagick-gui has stopped. You can close this tab.</p>`,
+    "sm",
+  );
+  $("btnQuit").setAttribute("disabled", "disabled");
+};
+
+const quitServer = (): void => {
+  void (async () => {
+    const ok = await ask({
+      title: "Close picmagick-gui",
+      body: `<p class="modal-copy">Stop the local server?</p>
+        <p class="modal-copy">The page will lose its connection. Files already written stay on disk. A running or paused conversion blocks shutdown until it is paused, resumed, or cancelled.</p>`,
+      confirmLabel: "Close server",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api("shutdown", { method: "POST", body: {} });
+      showServerStopped();
+    } catch (error) {
+      let alive = true;
+      try {
+        await fetch("/api/status", { cache: "no-store" });
+      } catch {
+        alive = false;
+      }
+      if (!alive) {
+        showServerStopped();
+        return;
+      }
+      plainModal(
+        "Server still running",
+        `<p class="modal-copy bad">${escapeHtml(formatError(error))}</p>
+         <p class="modal-copy">Pause or cancel the conversion, then try again.</p>`,
+        "sm",
+      );
+    }
+  })();
+};
+
+// --------------------------------------------------------------------------
+// Theme
+// --------------------------------------------------------------------------
+
+const themeIds: ThemeId[] = [...THEME_IDS];
+
+const storedTheme = (): ThemeChoice => {
+  try {
+    const saved = localStorage.getItem("picmagik.theme");
+    if (saved === "auto" || themeIds.includes(saved as ThemeId)) return saved as ThemeChoice;
+  } catch {
+    /* private mode */
+  }
+  return "auto";
+};
+
+const applyTheme = (choice: ThemeChoice, persist = true): void => {
+  themeChoice = choice;
+  state.themeChoice = choice;
+  const resolved = choice === "auto"
+    ? (window.matchMedia("(prefers-color-scheme: light)").matches ? "daylight" : "midnight")
+    : choice;
+  document.documentElement.dataset.theme = resolved;
+  if (persist) {
+    try {
+      localStorage.setItem("picmagik.theme", choice);
+    } catch {
+      /* private mode */
+    }
+  }
+  const pick = document.getElementById("themePick") as HTMLSelectElement | null;
+  if (pick) pick.value = choice;
+};
+
+// --------------------------------------------------------------------------
+// Rail, shell bindings, shortcuts
+// --------------------------------------------------------------------------
+
+const railTargets: Record<string, string> = {
+  source: "sourceRoot",
+  select: "treeFilter",
+  output: "formatCards",
+  review: "planHero",
+  run: "btnStart",
+};
+
+const railStep = (step: string): void => {
+  if (step === "run" && (state.run.id || state.running || state.lastSummary)) {
+    runView.open();
+    return;
+  }
+  const target = document.getElementById(railTargets[step] ?? "");
+  target?.scrollIntoView({ block: "center", behavior: "smooth" });
+  if (step === "source") input("sourceRoot").focus();
+  if (step === "select") library.focus();
+  if (step === "output") {
+    if (state.view !== "workspace") switchView("workspace");
+    document.querySelector<HTMLButtonElement>("#formatCards .format-card:not(:disabled)")?.focus();
+  }
+  if (step === "review") {
+    if (state.view !== "workspace") switchView("workspace");
+    $("planHero").scrollIntoView({ block: "start", behavior: "smooth" });
+  }
+  if (step === "run") $("btnStart").focus();
+};
+
+const closeOverflow = (): void => {
+  $("overflowMenu").classList.add("hidden");
+  $("btnOverflow").setAttribute("aria-expanded", "false");
+};
+
+const toggleOverflow = (): void => {
+  const menu = $("overflowMenu");
+  const open = menu.classList.contains("hidden");
+  menu.classList.toggle("hidden", !open);
+  $("btnOverflow").setAttribute("aria-expanded", String(open));
+};
+
+// --------------------------------------------------------------------------
+// Boot
+// --------------------------------------------------------------------------
+
+const boot = async (): Promise<void> => {
+  applyTheme(storedTheme(), false);
+
+  try {
+    const status = await api<Status>("status");
+    applyStatusMeta(status);
+
+    state.excluded = new Set(status.policy.excludedFolders);
+    state.included = new Set(status.policy.includedFolders);
+    state.excludedFiles = new Set(status.policy.excludedFiles);
+    state.includedFiles = new Set(status.policy.includedFiles);
+    extEnabled = { ...status.policy.extEnabled };
+
+    input("minsize").value = String(status.policy.minSizeBytes / 1024 ** 2);
+    input("copyUndersized").checked = status.policy.copyUndersized;
+    input("includeRaw").checked = status.policy.includeRaw;
+    input("flattenGif").checked = status.policy.flattenGif;
+    input("heicSpeed").value = String(status.policy.heicSpeed);
+
+    formatUi.init(status);
+    renderExtToggles();
+    setUndersize(status.policy.copyUndersized);
+    updateMinSizeReadout();
+    updateJobsReadout();
+    paintRanges();
+    updateStartOptions();
+
+    if (status.liveJobId) {
+      await runLifecycle.attach(status.liveJobId, true);
+    }
+
+    if (status.scanned) {
+      const scan = await api<ScanResult>("scan", { method: "POST", body: {} });
+      library.setScan(scan, false);
+      await refreshPreview();
+    } else {
+      plan.render();
+      updateChrome();
+    }
+
+    void checkMagick(false).catch((error: unknown) => {
+      toast(formatError(error), "warning");
+    });
+  } catch (error) {
+    toast(formatError(error), "danger");
+    plan.render();
+    updateChrome();
+  } finally {
+    state.booted = true;
+    document.documentElement.classList.add("booted");
+  }
+};
+
+// --------------------------------------------------------------------------
+// Wire the shell
+// --------------------------------------------------------------------------
+
+runView = createRunView(actions);
+compareView = createCompareView(actions);
+runsView = createRunsView(actions);
+healthView = createHealthView(actions);
+auditView = createAuditView(actions);
+
+library = createLibrary({
+  onChange: () => updateChrome(),
+  onPreview: () => schedulePreview(),
+  onToast: (message, kind) => toast(message, kind),
+});
+
+plan = createPlan({
+  onStart: () => void runLifecycle.start(),
+  onEstimate: () => void runEstimate(),
+  onSync: () => auditView.open("sync"),
+  onCompare: () => compareView.open(),
+  onAudit: () => auditView.open("sync"),
+  onHealth: () => healthView.open(),
+  onReviewBudget: () => {
+    if (state.view !== "workspace") switchView("workspace");
+    $("folderSection").scrollIntoView({ block: "start", behavior: "smooth" });
+  },
+});
+
+formatUi = createFormatUi({
+  onSelect: (id) => void chooseFormat(id),
+  onPreview: () => schedulePreview(),
+  onToast: (message) => toast(message, "warning"),
+});
+
+runLifecycle = createRunLifecycle({
+  policy,
+  save,
+  render: () => {
+    runView.renderDock();
+    if (state.view === "run") runView.renderView();
+    plan.render();
+    updateChrome();
+  },
+  openRunView: () => runView.open(),
+  onFinished: async () => {
+    runView.renderDock();
+    if (state.view === "run") runView.renderView();
+    await refreshPreview();
+    await refreshStatus();
+  },
+  onError: (message) => toast(message, "danger"),
+  onInfo: (message) => toast(message, "success"),
+  lockFormat: (locked) => formatUi.lock(locked),
+});
+
+$("btnPickSource").addEventListener("click", () => void pickFolder("source"));
+$("btnPick").addEventListener("click", () => void pickFolder("destination"));
+$("btnScan").addEventListener("click", () => void applySource());
+$("sourceRoot").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    void applySource();
+  }
+});
+
+let destinationBefore = "";
+input("destination").addEventListener("focus", () => {
+  destinationBefore = input("destination").value;
+});
+input("destination").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    input("destination").blur();
+  }
+});
+input("destination").addEventListener("change", () => {
+  const previous = destinationBefore || input("destination").value;
+  destinationBefore = input("destination").value;
+  if (input("destination").value.trim() !== previous.trim()) {
+    void applyDestination(previous);
+  }
+});
+
+input("minsize").addEventListener("input", () => {
+  updateMinSizeReadout();
+  paintRange("minsize");
+  schedulePreview();
+});
+$("copyUnder").addEventListener("click", () => setUndersize(true));
+$("skipUnder").addEventListener("click", () => setUndersize(false));
+input("includeRaw").addEventListener("change", () => schedulePreview());
+input("flattenGif").addEventListener("change", () => schedulePreview());
+
+input("budget").addEventListener("input", () => {
+  $("budgetOut").textContent = `${input("budget").value} GB`;
+  paintRange("budget");
+  schedulePreview();
+});
+
+input("jobs").addEventListener("input", () => {
+  updateJobsReadout();
+  runLifecycle.setJobs(input("jobs").valueAsNumber);
+});
+input("viewJobs").addEventListener("input", () => {
+  $("viewJobsOut").textContent = input("viewJobs").value;
+  input("jobs").value = input("viewJobs").value;
+  updateJobsReadout();
+  paintRange("viewJobs");
+  runLifecycle.setJobs(input("viewJobs").valueAsNumber);
+});
+
+input("overwrite").addEventListener("change", updateStartOptions);
+input("onlyNew").addEventListener("change", updateStartOptions);
+
+$("btnPause").addEventListener("click", () => void runLifecycle.pause());
+$("viewPause").addEventListener("click", () => void runLifecycle.pause());
+$("btnResume").addEventListener("click", () => void runLifecycle.resume());
+$("viewResume").addEventListener("click", () => void runLifecycle.resume());
+$("btnCancel").addEventListener("click", () => void runLifecycle.cancel());
+$("viewCancel").addEventListener("click", () => void runLifecycle.cancel());
+$("btnDiscard").addEventListener("click", () => void runLifecycle.cancel());
+
+$("btnHealth").addEventListener("click", () => healthView.open());
+$("btnRuns").addEventListener("click", () => {
+  closeOverflow();
+  runsView.open();
+});
+$("btnAbout").addEventListener("click", () => {
+  closeOverflow();
+  openAbout();
+});
+$("btnAboutBrand").addEventListener("click", openAbout);
+$("btnQuit").addEventListener("click", () => {
+  closeOverflow();
+  quitServer();
+});
+$("imUpdate").addEventListener("click", () => void installMagick());
+
+$("btnOverflow").addEventListener("click", (event) => {
+  event.stopPropagation();
+  toggleOverflow();
+});
+$("themePick").addEventListener("change", () => {
+  const choice = $<HTMLSelectElement>("themePick").value as ThemeChoice;
+  applyTheme(choice);
+});
+
+for (const button of document.querySelectorAll<HTMLButtonElement>(".rail-step")) {
+  button.addEventListener("click", () => railStep(button.dataset.step ?? ""));
+}
+
+for (const button of document.querySelectorAll<HTMLButtonElement>("[data-back]")) {
+  button.addEventListener("click", () => switchView("workspace"));
+}
+
+$("modalClose").addEventListener("click", () => {
+  if (confirmResolve) settleConfirm(false);
+  else {
+    closeModal();
+    setModalFoot("");
+  }
+});
+
+$<HTMLDialogElement>("modal").addEventListener("close", () => {
+  const resolve = confirmResolve;
+  confirmResolve = null;
+  setModalFoot("");
+  resolve?.(false);
+});
+
+$("modal").addEventListener("click", (event) => {
+  if (event.target !== $("modal")) return;
+  if (confirmResolve) settleConfirm(false);
+  else {
+    closeModal();
+    setModalFoot("");
+  }
+});
+
+document.addEventListener("click", (event) => {
+  if (!(event.target as HTMLElement).closest(".overflow-wrap")) closeOverflow();
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    if ($<HTMLDialogElement>("modal").open) {
+      if (confirmResolve) settleConfirm(false);
+      else {
+        closeModal();
+        setModalFoot("");
+      }
+      return;
+    }
+    if (!$("overflowMenu").classList.contains("hidden")) {
+      closeOverflow();
+      $("btnOverflow").focus();
+      return;
+    }
+    if (auditView.handleKey(event)) return;
+    if (state.view === "compare" && compareView.handleKey(event)) return;
+    if (state.view !== "workspace") {
+      event.preventDefault();
+      switchView("workspace");
+    }
+    return;
+  }
+
+  if (state.view === "compare" && compareView.handleKey(event)) return;
+
+  const tag = (event.target as HTMLElement | null)?.tagName ?? "";
+  const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+  if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+    event.preventDefault();
+    if (!state.running && !state.starting) void runLifecycle.start();
+    return;
+  }
+  if (event.key === "/" && !typing) {
+    event.preventDefault();
+    library.focus();
+  }
+});
+
+window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
+  if (themeChoice === "auto") applyTheme("auto", false);
+});
+
+window.addEventListener("beforeunload", () => {
+  state.es?.close();
+});
+
+// The startup theme was already applied inline; sync the picker and boot.
+themeChoice = storedTheme();
+state.themeChoice = themeChoice;
+$<HTMLSelectElement>("themePick").value = themeChoice;
+void boot();

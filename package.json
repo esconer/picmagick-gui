@@ -18,8 +18,9 @@
     "desktop:build": "electrobun build --env=stable",
     "desktop:build:canary": "electrobun build --env=canary",
     "release:check": "bun run scripts/check-release-version.ts",
+    "build:client": "bun build src/client/main.ts --outfile public/app.js --target browser",
     "typecheck": "bunx tsc -p tsconfig.json",
-    "check": "bun run typecheck && bun run src/client.check.ts && bun run src/platform.check.ts && bun run src/format.check.ts"
+    "check": "bun run build:client && bun run typecheck && bun run src/client.check.ts && bun run src/platform.check.ts && bun run src/format.check.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

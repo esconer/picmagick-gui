@@ -1,0 +1,207 @@
+/* ==========================================================================
+   tokens.css — the only place raw colour, size, shape, and motion values live.
+   Every component consumes the semantic aliases at the bottom of this file.
+   ========================================================================== */
+
+:root {
+  /* ---- primitive palette: Midnight (default dark) ---- */
+  --bg: #070a10;
+  --panel: #0d1119;
+  --panel-2: #121826;
+  --panel-3: #182033;
+  --line: #222c3d;
+  --line-soft: #1a2331;
+  --line-faint: #141b26;
+  --text: #e8edf6;
+  --muted: #8b98ac;
+  --muted-2: #5f6c80;
+  --accent: #5aa2ff;
+  --accent-hover: #7bb7ff;
+  --accent-2: #22d3ee;
+  --accent-soft: #12263f;
+  --on-accent: #04101f;
+  --violet: #8b7bff;
+  --good: #3ddc97;
+  --warn: #f5b544;
+  --bad: #ff6b7d;
+  --hover-bg: #182133;
+  --hover-line: #2e3d54;
+  --row-hover: #101724;
+  --selection: #132a44;
+  --strike: #4a5668;
+  --badge-bg: #1a2333;
+  --badge-raw-bg: #3a2c12;
+  --badge-dead-bg: #3a1e26;
+  --paused-bg: #2c2411;
+  --paused-line: #6b531b;
+  --scroll-thumb: #2b3648;
+  --scroll-thumb-hover: #3a4860;
+  --img-bg: #000000;
+  --backdrop: rgba(2, 5, 10, .72);
+  --glass: rgba(13, 17, 25, .78);
+  --glow: rgba(90, 162, 255, .22);
+
+  /* ---- typography ---- */
+  --font-sans: system-ui, "Segoe UI Variable", "Segoe UI", Roboto, Ubuntu,
+               Cantarell, "Noto Sans", sans-serif;
+  --font-serif: "Palatino Linotype", Palatino, Georgia, "Noto Serif", serif;
+  --font-mono: ui-monospace, "Cascadia Code", "SFMono-Regular", "JetBrains Mono",
+               Consolas, "Liberation Mono", monospace;
+
+  --fs-2xs: 10.5px;
+  --fs-xs: 11.5px;
+  --fs-sm: 12.5px;
+  --fs-base: 13.5px;
+  --fs-md: 15px;
+  --fs-lg: 17px;
+  --fs-xl: 20px;
+  --fs-2xl: 28px;
+  --fs-3xl: 40px;
+
+  --lh-2xs: 14px;
+  --lh-xs: 16px;
+  --lh-sm: 18px;
+  --lh-base: 20px;
+  --lh-md: 22px;
+  --lh-lg: 24px;
+  --lh-xl: 28px;
+  --lh-2xl: 34px;
+  --lh-3xl: 44px;
+
+  /* ---- space (4 px base) ---- */
+  --sp-1: 2px;
+  --sp-2: 4px;
+  --sp-3: 6px;
+  --sp-4: 8px;
+  --sp-5: 12px;
+  --sp-6: 16px;
+  --sp-7: 20px;
+  --sp-8: 24px;
+  --sp-10: 32px;
+  --sp-12: 40px;
+  --sp-14: 48px;
+  --sp-16: 64px;
+
+  /* ---- shape ---- */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius-pill: 999px;
+
+  /* ---- elevation ---- */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .18), 0 2px 8px rgba(0, 0, 0, .12);
+  --shadow-md: 0 10px 28px rgba(0, 0, 0, .24);
+  --shadow-lg: 0 28px 72px rgba(0, 0, 0, .36);
+  --shadow-glow: 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent),
+                 0 8px 30px color-mix(in srgb, var(--accent) 18%, transparent);
+
+  /* ---- motion ---- */
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-slow: 240ms;
+  --ease-standard: cubic-bezier(.2, 0, 0, 1);
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+
+  /* ---- layers ---- */
+  --z-sticky: 10;
+  --z-dock: 20;
+  --z-dropdown: 30;
+  --z-drawer: 40;
+  --z-modal: 50;
+  --z-toast: 60;
+
+  /* ---- fixed shell sizes ---- */
+  --h-identity: 56px;
+  --h-rail: 60px;
+  --h-pane-head: 46px;
+  --h-pane-foot: 36px;
+  --h-status: 28px;
+  --w-library: minmax(280px, 320px);
+  --w-recipe: 360px;
+  --w-plan: minmax(420px, 1fr);
+
+  /* ---- semantic aliases ---- */
+  --surface-canvas: var(--bg);
+  --surface-pane: var(--panel);
+  --surface-raised: var(--panel-2);
+  --surface-hover: var(--panel-3);
+  --surface-sunken: color-mix(in srgb, var(--bg) 72%, var(--panel-2));
+  --surface-overlay: var(--panel);
+  --surface-glass: var(--glass);
+
+  --text-primary: var(--text);
+  --text-secondary: var(--muted);
+  --text-tertiary: var(--muted-2);
+  --text-inverse: var(--on-accent);
+
+  --border-subtle: var(--line-soft);
+  --border-default: var(--line);
+  --border-strong: var(--hover-line);
+
+  --action-primary: var(--accent);
+  --action-primary-hover: var(--accent-hover);
+  --action-primary-soft: var(--accent-soft);
+  --action-on-primary: var(--on-accent);
+
+  --status-success: var(--good);
+  --status-warning: var(--warn);
+  --status-danger: var(--bad);
+  --status-info: var(--accent);
+  --status-success-soft: color-mix(in srgb, var(--good) 14%, transparent);
+  --status-warning-soft: color-mix(in srgb, var(--warn) 14%, transparent);
+  --status-danger-soft: color-mix(in srgb, var(--bad) 14%, transparent);
+  --status-info-soft: color-mix(in srgb, var(--accent) 13%, transparent);
+
+  --focus-ring: var(--accent);
+  --selection-bg: var(--selection);
+  --row-hover-bg: var(--row-hover);
+  --accent-gradient: linear-gradient(100deg, var(--accent) 0%, var(--accent-2) 100%);
+  --aurora-gradient: linear-gradient(110deg, var(--accent) 0%, var(--violet) 58%, var(--accent-2) 100%);
+}
+
+/* --------------------------------------------------------------------------
+   Daylight primitives live here too so the pre-paint `auto` resolution has a
+   complete palette before themes.css loads.
+   -------------------------------------------------------------------------- */
+[data-theme="daylight"] {
+  --bg: #f1efe9;
+  --panel: #fbfaf7;
+  --panel-2: #ffffff;
+  --panel-3: #f4f1ea;
+  --line: #ddd8cd;
+  --line-soft: #e8e4db;
+  --line-faint: #eeebe4;
+  --text: #1b2230;
+  --muted: #616c7c;
+  --muted-2: #8a94a2;
+  --accent: #1769e0;
+  --accent-hover: #0f57c2;
+  --accent-2: #0891b2;
+  --accent-soft: #dceafd;
+  --on-accent: #ffffff;
+  --violet: #6d5ce7;
+  --good: #0f7a4f;
+  --warn: #946000;
+  --bad: #c02b3c;
+  --hover-bg: #efece5;
+  --hover-line: #c8c2b6;
+  --row-hover: #f4f1ea;
+  --selection: #dceafd;
+  --strike: #b3aca0;
+  --badge-bg: #ebe7de;
+  --badge-raw-bg: #f3e7cd;
+  --badge-dead-bg: #f4dedf;
+  --paused-bg: #fdf2d5;
+  --paused-line: #d2a62a;
+  --scroll-thumb: #c8c1b4;
+  --scroll-thumb-hover: #afa797;
+  --img-bg: #e9e6df;
+  --backdrop: rgba(30, 34, 42, .38);
+  --glass: rgba(251, 250, 247, .84);
+  --glow: rgba(23, 105, 224, .18);
+  --shadow-sm: 0 1px 2px rgba(30, 34, 42, .08), 0 2px 8px rgba(30, 34, 42, .06);
+  --shadow-md: 0 10px 28px rgba(30, 34, 42, .14);
+  --shadow-lg: 0 24px 64px rgba(30, 34, 42, .22);
+}

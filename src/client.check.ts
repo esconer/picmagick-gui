@@ -1,93 +1,101 @@
 /**
- * Guard against regressions from bulk edits: every identifier the client
- * actually calls must be defined before it is used.
+ * Guard against client-shell regressions.
+ *
+ * TypeScript and the bundler already prove that every imported symbol exists.
+ * This check covers the seam they cannot see: every element id the client looks
+ * up must exist in index.html or be created by the client itself. It also keeps
+ * the old un-bundled modules from creeping back into the served artifact.
  *
  *   bun run src/client.check.ts
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 
-const files = ["public/app.js", "public/treelogic.js", "public/formatlogic.js"];
 let bad = 0;
 
-for (const file of files) {
-  const raw = readFileSync(file, "utf8");
-  // Strip comments and string bodies before scanning, so prose in a comment
-  // cannot be mistaken for a call and a URL cannot be read as an identifier.
-  const src = raw
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/\/\/[^\n]*/g, " ")
-    .replace(/`(?:[^`\\]|\\.)*`/g, '""')
-    .replace(/"(?:[^"\\]|\\.)*"/g, '""')
-    .replace(/'(?:[^'\\]|\\.)*'/g, '""');
-  console.log(`\n== ${file} (${raw.length} bytes) ==`);
+const walk = (dir: string): string[] =>
+  readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name);
+    return entry.isDirectory() ? walk(path) : [path];
+  });
 
-  // const/function declarations, plus arrow-function consts.
-  const defs = new Set<string>();
-  for (const m of src.matchAll(/(?:const|let|function)\s+([A-Za-z_$][\w$]*)/g)) {
-    defs.add(m[1]);
-  }
+const sources = walk("src/client").filter((file) => file.endsWith(".ts"));
+const html = readFileSync("public/index.html", "utf8");
+const bundle = readFileSync("public/app.js", "utf8");
 
-  // Locally scoped names we do not expect to resolve elsewhere.
-  const imports = new Set<string>();
-  for (const m of src.matchAll(/import\s*\{([^}]+)\}/g)) {
-    for (const part of m[1].split(",")) {
-      const name = part.trim().split(/\s+as\s+/).pop()?.trim();
-      if (name) imports.add(name);
-    }
-  }
+// ── 1. The served artifact must be current and self-contained ───────────────
+console.log(`\n== bundle ==`);
+if (bundle.length < 50_000) {
+  bad++;
+  console.log(`  app.js is only ${bundle.length} bytes — run bun run build:client`);
+} else {
+  console.log(`  app.js is ${(bundle.length / 1024).toFixed(1)} KB`);
+}
 
-  // Genuine browser and language globals.
-  const builtins = new Set([
-    "document", "window", "console", "Math", "Number", "String", "Boolean",
-    "Array", "Object", "Set", "Map", "JSON", "Promise", "parseInt", "parseFloat",
-    "setTimeout", "clearTimeout", "setInterval", "clearInterval",
-    "encodeURIComponent", "decodeURIComponent", "Intl", "Date", "Error",
-    "RegExp", "fetch", "EventSource", "AbortController", "Response", "Request",
-    "TextDecoder", "TextEncoder", "URL", "URLSearchParams",
-    "if", "for", "while", "switch", "catch", "return", "typeof", "new",
-    "of", "in", "do", "else", "try", "function", "async", "await", "var",
-  ]);
+if (/from\s+["']\.\/(?:treelogic|formatlogic)/.test(bundle)) {
+  bad++;
+  console.log("  app.js still imports the deleted treelogic/formatlogic modules");
+} else {
+  console.log("  no imports of the deleted un-bundled modules");
+}
 
-  const called = new Map<string, number>();
-  for (const m of src.matchAll(/(^|[^.\w$])([A-Za-z_$][\w$]*)\s*\(/g)) {
-    const name = m[2];
-    called.set(name, (called.get(name) ?? 0) + 1);
-  }
+if (!bundle.includes("/api/")) {
+  bad++;
+  console.log("  app.js does not look like the client bundle");
+}
 
-  const missing = [...called.keys()].filter(
-    (n) => !defs.has(n) && !imports.has(n) && !builtins.has(n),
-  );
-
-  if (missing.length) {
+// ── 2. Every literal element id must resolve ───────────────────────────────
+const htmlIds = new Set<string>();
+for (const match of html.matchAll(/\bid="([A-Za-z_$][\w$]*)"/g)) {
+  const id = match[1];
+  if (htmlIds.has(id)) {
     bad++;
-    for (const n of missing) console.log(`  MISSING: ${n}()  (called ${called.get(n)}x)`);
-  } else {
-    console.log("  all called identifiers are defined");
+    console.log(`  duplicate id in index.html: #${id}`);
+  }
+  htmlIds.add(id);
+}
+
+const created = new Set<string>();
+for (const file of sources) {
+  const source = readFileSync(file, "utf8");
+  for (const match of source.matchAll(/\bid="([A-Za-z_$][\w$]*)"/g)) created.add(match[1]);
+  for (const match of source.matchAll(/\bid='([A-Za-z_$][\w$]*)'/g)) created.add(match[1]);
+}
+
+const referenced = new Map<string, string>();
+for (const file of sources) {
+  const source = readFileSync(file, "utf8");
+  const patterns = [
+    /\$(?:<[^>]+>)?\("([^"]+)"\)/g,
+    /\binput\("([^"]+)"\)/g,
+    /\bselect\("([^"]+)"\)/g,
+    /document\.getElementById\("([^"]+)"\)/g,
+  ];
+  for (const pattern of patterns) {
+    for (const match of source.matchAll(pattern)) {
+      if (!referenced.has(match[1])) referenced.set(match[1], file);
+    }
   }
 }
 
-// Element ids the JS touches must exist in the HTML, unless the JS creates
-// them itself (the sync panel does, for its "convert only these" button).
-const js = readFileSync("public/app.js", "utf8");
-const html = readFileSync("public/index.html", "utf8");
-const ids = new Set<string>();
-for (const m of js.matchAll(/\$\("([^"]+)"\)/g)) ids.add(m[1]);
-for (const m of js.matchAll(/\$input\("([^"]+)"\)/g)) ids.add(m[1]);
-
-// Ids the script builds and injects rather than shipping in index.html.
-const createdInJs = new Set(
-  [...js.matchAll(/id="([A-Za-z_$][\w$]*)"/g)].map((m) => m[1]),
-);
-
-const absent = [...ids].filter(
-  (id) => !html.includes(`id="${id}"`) && !createdInJs.has(id),
-);
 console.log(`\n== element ids ==`);
+const absent = [...referenced.entries()].filter(
+  ([id]) => !htmlIds.has(id) && !created.has(id),
+);
 if (absent.length) {
   bad++;
-  for (const id of absent) console.log(`  MISSING in index.html: #${id}`);
+  for (const [id, file] of absent) console.log(`  MISSING in index.html: #${id}  (${file})`);
 } else {
-  console.log(`  all ${ids.size} referenced ids resolve (html or created in js)`);
+  console.log(`  all ${referenced.size} literal ids resolve in HTML or are created by the client`);
+}
+
+// ── 3. The shell must not assume macOS chrome ──────────────────────────────
+console.log(`\n== platform ==`);
+if (/traffic-light|titleBarStyle\s*[:=]\s*["']hiddenInset/.test(html)) {
+  bad++;
+  console.log("  index.html still contains macOS-only chrome");
+} else {
+  console.log("  no macOS-only chrome in index.html");
 }
 
 console.log(bad ? `\n${bad} problem(s)` : "\nclient OK");

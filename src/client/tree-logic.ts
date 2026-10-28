@@ -13,20 +13,67 @@
  * giving up the parent's exclusion.
  */
 
+/** A file as the tree logic sees it. Server-supplied fields are carried through unchanged. */
+export type TreeFile = {
+  rel: string;
+  name?: string;
+};
+
+/** A folder node. Only the fields the pure tree logic walks are required here. */
+export type TreeNode = {
+  rel: string;
+  files?: readonly TreeFile[];
+  children: readonly TreeNode[];
+};
+
+/** Path matching options supplied by the server through /api/status. */
+export type PathOptions = {
+  sep?: string;
+  caseInsensitive?: boolean;
+};
+
+/** Path matching options after defaults have been filled in. */
+type ResolvedPathOptions = {
+  sep: string;
+  caseInsensitive: boolean;
+};
+
+/** The pair of file-level override sets returned by a toggle. */
+export type FileSelection = {
+  excludedFiles: Set<string>;
+  includedFiles: Set<string>;
+};
+
+/** Folder exclusions plus the explicit includes that override them. */
+export type FolderSelection = {
+  excluded: Set<string>;
+  included: Set<string>;
+};
+
+/** File totals for one folder, as displayed by a tri-state folder checkbox. */
+export type SelectionCount = {
+  total: number;
+  selected: number;
+};
+
 /** Lowercased (or unchanged) copy for path matching. */
-export const excludedLower = (set, caseInsensitive = true) =>
+export const excludedLower = (
+  set: ReadonlySet<string>,
+  caseInsensitive = true,
+): Set<string> =>
   new Set([...set].map((e) => caseInsensitive ? e.toLowerCase() : e));
 
 /**
  * Path matching options supplied by the server through /api/status.
  * Defaults preserve the original Windows behaviour for direct callers.
  */
-const pathOptions = (opts) => ({
+const pathOptions = (opts?: PathOptions): ResolvedPathOptions => ({
   sep: opts?.sep === "/" ? "/" : "\\",
   caseInsensitive: opts?.caseInsensitive !== false,
 });
 
-const fold = (s, caseInsensitive) => caseInsensitive ? s.toLowerCase() : s;
+const fold = (s: string, caseInsensitive: boolean): string =>
+  caseInsensitive ? s.toLowerCase() : s;
 
 /** Does `prefix` cover `rel`, matching only on a path boundary? */
 /**
@@ -34,7 +81,7 @@ const fold = (s, caseInsensitive) => caseInsensitive ? s.toLowerCase() : s;
  * @param {string} rel
  * @param {string} dir
  */
-function covers(prefix, rel, dir) {
+function covers(prefix: string, rel: string, dir: string): boolean {
   return dir === prefix || dir.startsWith(prefix + "/") || rel.startsWith(prefix + "/");
 }
 
@@ -44,11 +91,16 @@ function covers(prefix, rel, dir) {
  * Two passes on purpose: an explicit include anywhere along the path must win
  * over an exclusion higher up, so all prefixes are checked for include first.
  */
-export function isFullyExcluded(rel, ex, inc = new Set(), opts = {}) {
+export function isFullyExcluded(
+  rel: string,
+  ex: ReadonlySet<string>,
+  inc: ReadonlySet<string> = new Set<string>(),
+  opts: PathOptions = {},
+): boolean {
   if (!rel) return false;
   const { sep, caseInsensitive } = pathOptions(opts);
   const parts = rel.split(sep);
-  const prefixes = [];
+  const prefixes: string[] = [];
   for (let i = 1; i <= parts.length; i++) {
     prefixes.push(fold(parts.slice(0, i).join(sep), caseInsensitive));
   }
@@ -58,7 +110,12 @@ export function isFullyExcluded(rel, ex, inc = new Set(), opts = {}) {
 }
 
 /** True when a descendant is excluded but this folder itself is not. */
-export function hasExcludedDescendant(node, ex, inc = new Set(), opts = {}) {
+export function hasExcludedDescendant(
+  node: TreeNode,
+  ex: ReadonlySet<string>,
+  inc: ReadonlySet<string> = new Set<string>(),
+  opts: PathOptions = {},
+): boolean {
   const { caseInsensitive } = pathOptions(opts);
   if (node.rel && ex.has(fold(node.rel, caseInsensitive))) return true;
   return node.children.some((c) => hasExcludedDescendant(c, ex, inc, opts));
@@ -79,7 +136,14 @@ export function hasExcludedDescendant(node, ex, inc = new Set(), opts = {}) {
  * @param {Set<string>} incFiles
  * @param {{sep?: string, caseInsensitive?: boolean}} [opts]
  */
-export function isFileExcluded(rel, exFolders, incFolders, exFiles, incFiles, opts = {}) {
+export function isFileExcluded(
+  rel: string,
+  exFolders: ReadonlySet<string>,
+  incFolders: ReadonlySet<string>,
+  exFiles: ReadonlySet<string>,
+  incFiles: ReadonlySet<string>,
+  opts: PathOptions = {},
+): boolean {
   const { caseInsensitive } = pathOptions(opts);
   const key = fold(rel, caseInsensitive);
   if (incFiles.has(key)) return false;
@@ -101,7 +165,13 @@ export function isFileExcluded(rel, exFolders, incFolders, exFiles, incFiles, op
  * @param {{sep?: string, caseInsensitive?: boolean}} [opts]
  * @returns {{excludedFiles: Set<string>, includedFiles: Set<string>}}
  */
-export function toggleFile(rel, nowExcluded, excludedFiles = new Set(), includedFiles = new Set(), opts = {}) {
+export function toggleFile(
+  rel: string,
+  nowExcluded: boolean,
+  excludedFiles: ReadonlySet<string> = new Set<string>(),
+  includedFiles: ReadonlySet<string> = new Set<string>(),
+  opts: PathOptions = {},
+): FileSelection {
   const { caseInsensitive } = pathOptions(opts);
   const key = fold(rel, caseInsensitive);
   const ex = new Set(excludedFiles);
@@ -126,10 +196,15 @@ export function toggleFile(rel, nowExcluded, excludedFiles = new Set(), included
  * @param {{sep?: string, caseInsensitive?: boolean}} [opts]
  * @returns {{excludedFiles: Set<string>, includedFiles: Set<string>}}
  */
-export function clearFileOverridesUnder(rel, excludedFiles, includedFiles, opts = {}) {
+export function clearFileOverridesUnder(
+  rel: string,
+  excludedFiles: ReadonlySet<string>,
+  includedFiles: ReadonlySet<string>,
+  opts: PathOptions = {},
+): FileSelection {
   const { sep, caseInsensitive } = pathOptions(opts);
   const key = fold(rel, caseInsensitive);
-  const atOrBelow = (p) => {
+  const atOrBelow = (p: string): boolean => {
     const k = fold(p, caseInsensitive);
     return k === key || k.startsWith(key + sep);
   };
@@ -151,7 +226,11 @@ export function clearFileOverridesUnder(rel, excludedFiles, includedFiles, opts 
  * @param {Map<string, {total: number, selected: number}>} [out]
  * @returns {{total: number, selected: number}}
  */
-export function countSelection(node, isSelected, out = new Map()) {
+export function countSelection(
+  node: TreeNode,
+  isSelected: (file: TreeFile) => boolean,
+  out: Map<string, SelectionCount> = new Map(),
+): SelectionCount {
   let total = 0;
   let selected = 0;
   for (const f of node.files ?? []) {
@@ -168,7 +247,7 @@ export function countSelection(node, isSelected, out = new Map()) {
 }
 
 /** Every file in a tree, including files sitting directly in the root. */
-export function collectFiles(node) {
+export function collectFiles(node: TreeNode): TreeFile[] {
   return [
     ...(node.files ?? []),
     ...(node.children ?? []).flatMap((c) => collectFiles(c)),
@@ -186,7 +265,14 @@ export function collectFiles(node) {
  * @param nowExcluded true when the folder should be skipped.
  * @returns {{excluded: Set<string>, included: Set<string>}}
  */
-export function toggleFolder(tree, excluded, rel, nowExcluded, included = new Set(), opts = {}) {
+export function toggleFolder(
+  tree: TreeNode | null,
+  excluded: ReadonlySet<string>,
+  rel: string,
+  nowExcluded: boolean,
+  included: ReadonlySet<string> = new Set<string>(),
+  opts: PathOptions = {},
+): FolderSelection {
   const ex = new Set(excluded);
   const inc = new Set(included);
   const { sep, caseInsensitive } = pathOptions(opts);
@@ -196,7 +282,7 @@ export function toggleFolder(tree, excluded, rel, nowExcluded, included = new Se
   // Descendants follow the target, so they are cleared in both directions.
   // Ancestors are deliberately NOT in here: excluding a child must never
   // cancel an exclusion the user set on its parent.
-  const atOrBelow = (e) => {
+  const atOrBelow = (e: string): boolean => {
     const k = fold(e, caseInsensitive);
     return k === key || k.startsWith(key + sep);
   };
@@ -218,11 +304,11 @@ export function toggleFolder(tree, excluded, rel, nowExcluded, included = new Se
 }
 
 /** Every rel in the tree, depth first. */
-export function collectRels(node) {
+export function collectRels(node: TreeNode): string[] {
   return node.children.flatMap((c) => [c.rel, ...collectRels(c)]);
 }
 
 /** Top-level folder rels only. */
-export function topLevelRels(tree) {
+export function topLevelRels(tree: TreeNode): string[] {
   return tree.children.map((c) => c.rel);
 }

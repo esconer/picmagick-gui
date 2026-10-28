@@ -9,7 +9,7 @@
  * @param {string} p
  * @returns {string}
  */
-export function stripTrailingSeparators(p) {
+export function stripTrailingSeparators(p: string): string {
   const s = String(p);
   if (s === "/" || s === "\\" || /^[A-Za-z]:[\\/]$/.test(s)) return s;
   return s.replace(/[\\/]+$/, "");
@@ -21,7 +21,7 @@ export function stripTrailingSeparators(p) {
  * @param {string} suffix
  * @returns {string}
  */
-export function defaultDestination(source, suffix) {
+export function defaultDestination(source: string, suffix: string): string {
   return `${stripTrailingSeparators(source)}-${suffix}`;
 }
 
@@ -36,15 +36,15 @@ export function defaultDestination(source, suffix) {
  * @returns {string}
  */
 export function nextDestinationOnFormatChange(
-  current,
-  source,
-  oldSuffix,
-  newSuffix,
-  caseInsensitive,
-) {
+  current: string,
+  source: string,
+  oldSuffix: string,
+  newSuffix: string,
+  caseInsensitive: boolean,
+): string {
   if (!current) return current;
 
-  const fold = (p) => {
+  const fold = (p: string): string => {
     const s = stripTrailingSeparators(p);
     return caseInsensitive ? s.toLowerCase() : s;
   };
