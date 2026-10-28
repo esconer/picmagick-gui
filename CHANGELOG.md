@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.2.0 - 2026-10-28
+
+- Redesigned the UI into a three-pane Obsidian cockpit: Library pane, Recipe
+  pane, and Plan/Run pane under a chevron rail navigation.
+- Added modular client TypeScript architecture under `src/client/` with atomic
+  modules for library, format logic/UI, plan, run lifecycle, and dedicated
+  views (audit, compare, health, run, runs).
+- Added client bundler script (`bun run build:client`) targeting browser into
+  `public/app.js`.
+- Modularized stylesheets into `tokens.css`, `base.css`, `layout.css`,
+  `components.css`, `themes.css`, and `views.css` supporting six themes and
+  daylight light/dark toggling.
+
 ## 1.1.0 - 2026-10-28
 
 - Added a seven-format output selector: JPEG XL, AVIF (still the default), WebP,

@@ -243,7 +243,7 @@ const applyStatusMeta = (status: Status): void => {
   $("stepSourceMeta").textContent = status.scanned
     ? `${status.fileCount.toLocaleString()} files`
     : "No folder";
-  $("statusVersion").textContent = "v1.1.0";
+  $("statusVersion").textContent = "v1.2.0";
 
   if (status.canPickFolder === false) {
     $("btnPickSource").classList.add("hidden");
@@ -945,7 +945,7 @@ const openAbout = (): void => {
     "About picmagick-gui",
     `<p class="modal-copy">A local-first photo converter. The source library is only ever read; every output is written to a separate destination and recorded in an undoable manifest.</p>
      <div class="fact-list">
-       <div class="fact-row"><span>Version</span><span>v1.1.0</span></div>
+       <div class="fact-row"><span>Version</span><span>v1.2.0</span></div>
        <div class="fact-row"><span>Platform</span><span>${escapeHtml(platformName(status?.platform ?? ""))} · ${escapeHtml(status?.arch ?? "—")}</span></div>
        <div class="fact-row"><span>ImageMagick</span><span>${status?.magick ? escapeHtml(shortVersion(status.magick.version)) : "not found"}</span></div>
        <div class="fact-row"><span>Destination</span><span class="mono" title="${escapeHtml(status?.destination ?? "")}">${escapeHtml(middlePath(status?.destination ?? "—", 56))}</span></div>

@@ -29,3 +29,8 @@ src/selftest.ts
 test/
 tests/
 test-results/
+
+# Scratch files and local roadmaps
+.scratch/
+roadmap.txt
+

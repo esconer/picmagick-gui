@@ -817,7 +817,7 @@ build per operating system, so the workflow runs a Windows and an Ubuntu job.
 2. Commit, then push a version tag:
 
    ```bash
-   git tag v1.1.0
+   git tag v1.2.0
    git push origin main --tags
    ```
 
