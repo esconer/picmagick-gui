@@ -4,7 +4,12 @@
 
 /* ────────────────────────────── recipe scroll ─────────────────────────── */
 .recipe-scroll { padding-bottom: 24px; }
-.plan-scroll { padding: 14px 16px 24px; }
+.plan-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 16px 24px;
+}
 
 /* ────────────────────────────────── plan ─────────────────────────────── */
 .plan-hero {
@@ -96,9 +101,10 @@
   font-size: var(--fs-xs);
   line-height: var(--lh-sm);
 }
-.plan-warnings:empty { display: none; }
+.plan-warnings:empty,
+.warning-stack:empty { display: none; }
 
-.plan-section { margin-top: 18px; }
+.plan-section { margin-top: 4px; }
 
 .folder-split { display: flex; flex-direction: column; gap: 9px; }
 .folder-row {
