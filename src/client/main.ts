@@ -671,13 +671,14 @@ const undoManifest = async (id: string, summary?: ManifestSummary): Promise<void
 const verifyJob = async (jobId: string): Promise<VerifyResponse> =>
   api<VerifyResponse>("verify", { method: "POST", body: { jobId } });
 
-const runCompare = async (rel: string): Promise<CompareResponse> => {
-  const spec = state.formatSpecs[state.currentFormat];
+const runCompare = async (rel: string, format?: OutputFormat): Promise<CompareResponse> => {
+  const chosenFormat = format ?? state.currentFormat;
+  const spec = state.formatSpecs[chosenFormat];
   return api<CompareResponse>("compare", {
     method: "POST",
     body: {
       rel,
-      format: state.currentFormat,
+      format: chosenFormat,
       qualities: spec?.compareQualities ?? [30, 50, 60, 70, 80],
     },
   });

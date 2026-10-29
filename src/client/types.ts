@@ -392,6 +392,8 @@ export type CompareResponse = {
   formatLabel: string;
   originalUrl: string;
   originalBytes: number;
+  originalExt?: string;
+  mtime?: number;
   variants: CompareVariant[];
   errors: string[];
 };

@@ -583,28 +583,42 @@
 
 <!-- ─────────────────────────────── compare view ────────────────────────── -->
 <section id="viewCompare" class="view-screen hidden" aria-labelledby="compareViewTitle">
-  <header class="view-head">
-    <button class="btn ghost sm" type="button" data-back="workspace">
-      <span aria-hidden="true">←</span> Workspace
-    </button>
-    <div class="view-title">
-      <h1 id="compareViewTitle">Compare</h1>
-      <span id="compareFormat" class="state-pill">AVIF</span>
+  <header class="view-head compare-head">
+    <div class="compare-head-left">
+      <button class="btn ghost sm" type="button" data-back="workspace">
+        <span aria-hidden="true">←</span> Workspace
+      </button>
+      <h1 id="compareViewTitle" class="sr-only">Compare</h1>
+      <span id="compareFormat" class="sr-only">AVIF</span>
     </div>
-    <div class="view-actions">
-      <div class="segmented compact" id="compareModes" role="group" aria-label="Comparison mode">
+    <div class="compare-head-center">
+      <div class="compare-select-wrap">
+        <select id="compareFileSelect" class="compare-top-select" aria-label="Select file"></select>
+      </div>
+      <div class="compare-select-wrap">
+        <select id="compareFormatSelect" class="compare-top-select" aria-label="Output format"></select>
+      </div>
+      <div class="compare-select-wrap">
+        <select id="compareModeSelect" class="compare-top-select" aria-label="Comparison mode">
+          <option value="split">Split View</option>
+          <option value="side">Side-by-side</option>
+          <option value="toggle">Original only</option>
+        </select>
+      </div>
+      <div class="segmented compact hidden" id="compareModes" role="group" aria-label="Comparison mode">
         <button type="button" data-mode="split" aria-pressed="true">Split</button>
         <button type="button" data-mode="side" aria-pressed="false">Side by side</button>
         <button type="button" data-mode="toggle" aria-pressed="false">Toggle</button>
       </div>
-      <div class="zoom-control">
-        <button id="compareZoomOut" class="btn icon xs" type="button" aria-label="Zoom out">−</button>
-        <span id="compareZoom" class="mono">Fit</span>
-        <button id="compareZoomIn" class="btn icon xs" type="button" aria-label="Zoom in">+</button>
+      <div class="compare-zoom-slider-wrap">
+        <button id="compareZoomOut" class="btn ghost icon xs zoom-step-btn" type="button" aria-label="Zoom out">−</button>
+        <input id="compareZoomSlider" type="range" min="0" max="300" step="10" value="100" class="compare-range-slider" aria-label="Zoom level">
+        <span id="compareZoom" class="compare-zoom-text mono">100%</span>
+        <button id="compareZoomIn" class="btn ghost icon xs zoom-step-btn" type="button" aria-label="Zoom in">+</button>
       </div>
-      <button id="compareClose" class="btn ghost icon sm" type="button" aria-label="Close compare">
-        <svg width="15" height="15" aria-hidden="true"><use href="#i-x"></use></svg>
-      </button>
+    </div>
+    <div class="compare-head-right">
+      <button id="compareClose" class="btn ghost sm compare-close-btn" type="button">Close</button>
     </div>
   </header>
   <div class="view-body compare-body">
@@ -613,16 +627,20 @@
       <p class="empty-title">Pick a file to compare</p>
       <p class="empty-note">Select a converted image, then open Compare again.</p>
     </div>
-    <div id="compareStage" class="compare-stage hidden"></div>
+    <div id="compareStage" class="compare-stage hidden" data-bg="checker"></div>
     <aside id="compareRail" class="compare-rail hidden">
-      <div class="compare-file">
-        <label for="compareFileSelect" class="micro-label">File</label>
-        <select id="compareFileSelect"></select>
+      <div class="compare-rail-section">
+        <h3 class="rail-sec-label">FILE</h3>
+        <div id="compareFacts" class="compare-facts-card"></div>
       </div>
-      <div id="compareFacts" class="fact-list"></div>
-      <div class="compare-ladder">
-        <div class="section-head"><h3>Quality ladder</h3></div>
-        <div id="compareLadder"></div>
+      <div class="compare-rail-section ladder-section">
+        <h3 class="rail-sec-label">QUALITY LADDER</h3>
+        <div id="compareLadder" class="compare-ladder-list"></div>
+      </div>
+      <div class="compare-rail-actions">
+        <button id="btnCompareApply" class="btn primary lg block glow-btn" type="button">Use q60</button>
+        <button id="btnCompareSetDefault" class="btn sm block secondary" type="button">Set as default</button>
+        <p id="compareFootnote" class="compare-footnote">AVIF preserves transparency and animation. q60 is recommended.</p>
       </div>
       <div id="compareErrors" class="compare-errors"></div>
     </aside>

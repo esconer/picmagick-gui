@@ -631,6 +631,8 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
       formatLabel: spec.label,
       originalUrl: `/api/source-file?rel=${encodeURIComponent(file.rel)}`,
       originalBytes: file.size,
+      originalExt: file.ext,
+      mtime: file.mtime,
       variants,
       errors,
     });
