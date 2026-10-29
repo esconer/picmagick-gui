@@ -9,6 +9,7 @@ import type { ToastKind } from "../dom";
 import type {
   CompareResponse,
   ManifestSummary,
+  OutputFormat,
   Policy,
   ScannedFile,
   UpdateStatus,
