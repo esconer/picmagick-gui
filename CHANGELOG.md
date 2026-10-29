@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.2.1 - 2026-10-29
+
+- Added an in-app self-updater that checks GitHub Releases, downloads the lean
+  update package in the background, and applies it without interrupting an
+  active conversion.
+- Redesigned the Compare view to match the inspector layout, with a format
+  dropdown, zoom slider, and theme-aware styling.
+- Fixed plan step numbers not being optically centered and the plan hero card
+  shrinking at narrow widths.
+- Restored the SVG icons in health checks and format badges, and fixed their
+  descriptions.
+
 ## 1.2.0 - 2026-10-28
 
 - Redesigned the UI into a three-pane Obsidian cockpit: Library pane, Recipe

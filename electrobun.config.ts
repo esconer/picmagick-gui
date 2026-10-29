@@ -21,7 +21,7 @@ export default {
     identifier: isFull
       ? "com.github.esconer.picmagick-gui-full"
       : "com.github.esconer.picmagick-gui",
-    version: "1.2.0",
+    version: "1.2.1",
     description:
       "Local GUI for converting a photo library to JXL, AVIF, WebP, HEIC, JPEG 2000, JPEG, or PNG.",
   },

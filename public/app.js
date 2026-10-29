@@ -2936,6 +2936,9 @@ function createRunsView(actions) {
   return { open, refresh };
 }
 
+// src/version.ts
+var APP_VERSION = "1.2.1";
+
 // src/client/main.ts
 var THEME_IDS = ["midnight", "daylight", "ink", "sepia", "nord", "rose"];
 var library;
@@ -3069,7 +3072,8 @@ var applyStatusMeta = (status) => {
   $("libraryName").textContent = status.sourceRoot ? baseName(status.sourceRoot) : "No library";
   $("libraryPill").title = status.sourceRoot || "Choose a source folder";
   $("stepSourceMeta").textContent = status.scanned ? `${status.fileCount.toLocaleString()} files` : "No folder";
-  $("statusVersion").textContent = "v1.2.0";
+  $("statusVersion").textContent = `v${APP_VERSION}`;
+  $("versionLabel").textContent = `v${APP_VERSION}`;
   if (status.canPickFolder === false) {
     $("btnPickSource").classList.add("hidden");
     $("btnPick").classList.add("hidden");
@@ -3799,7 +3803,7 @@ var openAbout = () => {
   const status = state.status;
   plainModal("About picmagick-gui", `<p class="modal-copy">A local-first photo converter. The source library is only ever read; every output is written to a separate destination and recorded in an undoable manifest.</p>
      <div class="fact-list">
-       <div class="fact-row"><span>Version</span><span>v1.2.0</span></div>
+       <div class="fact-row"><span>Version</span><span>v${APP_VERSION}</span></div>
        <div class="fact-row"><span>Check for updates</span><button id="btnAboutCheckUpdate" class="btn ghost sm" type="button">Check now</button></div>
        <div class="fact-row"><span>Platform</span><span>${escapeHtml(platformName(status?.platform ?? ""))} · ${escapeHtml(status?.arch ?? "—")}</span></div>
        <div class="fact-row"><span>ImageMagick</span><span>${status?.magick ? escapeHtml(shortVersion(status.magick.version)) : "not found"}</span></div>

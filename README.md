@@ -816,12 +816,13 @@ ImageMagick discovery should pass both the Windows and Linux CI jobs.
 The desktop installers are built with Electrobun. Each release needs one native
 build per operating system, so the workflow runs a Windows and an Ubuntu job.
 
-1. Bump the version in `package.json` and in `app.version` in
-   `electrobun.config.ts`. They must match the tag.
+1. Bump the version in `package.json`, in `app.version` in
+   `electrobun.config.ts`, and in `src/version.ts` (`APP_VERSION`). All three
+   must match the tag.
 2. Commit, then push a version tag:
 
    ```bash
-   git tag v1.2.0
+   git tag vX.Y.Z
    git push origin main --tags
    ```
 

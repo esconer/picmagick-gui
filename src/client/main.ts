@@ -55,6 +55,7 @@ import { createHealthView, type HealthViewController } from "./views/health";
 import { createRunView, type RunViewController } from "./views/run";
 import { createRunsView, type RunsViewController } from "./views/runs";
 import type { ConfirmOptions, ViewActions } from "./views/shared";
+import { APP_VERSION } from "../version";
 
 // --------------------------------------------------------------------------
 // Local response shapes
@@ -245,7 +246,8 @@ const applyStatusMeta = (status: Status): void => {
   $("stepSourceMeta").textContent = status.scanned
     ? `${status.fileCount.toLocaleString()} files`
     : "No folder";
-  $("statusVersion").textContent = "v1.2.0";
+  $("statusVersion").textContent = `v${APP_VERSION}`;
+  $("versionLabel").textContent = `v${APP_VERSION}`;
 
   if (status.canPickFolder === false) {
     $("btnPickSource").classList.add("hidden");
@@ -1188,7 +1190,7 @@ const openAbout = (): void => {
     "About picmagick-gui",
     `<p class="modal-copy">A local-first photo converter. The source library is only ever read; every output is written to a separate destination and recorded in an undoable manifest.</p>
      <div class="fact-list">
-       <div class="fact-row"><span>Version</span><span>v1.2.0</span></div>
+       <div class="fact-row"><span>Version</span><span>v${APP_VERSION}</span></div>
        <div class="fact-row"><span>Check for updates</span><button id="btnAboutCheckUpdate" class="btn ghost sm" type="button">Check now</button></div>
        <div class="fact-row"><span>Platform</span><span>${escapeHtml(platformName(status?.platform ?? ""))} · ${escapeHtml(status?.arch ?? "—")}</span></div>
        <div class="fact-row"><span>ImageMagick</span><span>${status?.magick ? escapeHtml(shortVersion(status.magick.version)) : "not found"}</span></div>
