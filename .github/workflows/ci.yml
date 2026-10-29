@@ -19,12 +19,14 @@ jobs:
           - platform: windows
             runs-on: windows-latest
           - platform: linux
-            runs-on: ubuntu-latest
+            # Pinned: `ubuntu-latest` migrates to Ubuntu 26 in Oct 2026, and the
+            # GTK 3 / WebKitGTK 4.1 build deps are validated on 24.04.
+            runs-on: ubuntu-24.04
     runs-on: ${{ matrix.runs-on }}
 
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
