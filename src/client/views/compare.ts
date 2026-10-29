@@ -509,6 +509,13 @@ export function createCompareView(actions: ViewActions): CompareViewController {
     const chosen = files.some((f) => f.rel === wanted) ? wanted! : files[0].rel;
     syncFileSelect(chosen);
     syncFormatSelect(activeFormat);
+    const zoomSlider = document.getElementById("compareZoomSlider") as HTMLInputElement | null;
+    if (zoomSlider) {
+      const displayVal = Math.round(state.compareZoom * 100);
+      zoomSlider.value = String(displayVal || 100);
+      const pct = (Number(zoomSlider.value) / Number(zoomSlider.max || 300)) * 100;
+      zoomSlider.style.setProperty("--zoom-fill", `${pct}%`);
+    }
     void run(chosen, activeFormat);
   };
 
@@ -527,7 +534,10 @@ export function createCompareView(actions: ViewActions): CompareViewController {
     state.compareZoom = Math.max(0, Math.min(3, next));
     const slider = document.getElementById("compareZoomSlider") as HTMLInputElement | null;
     if (slider) {
-      slider.value = String(Math.round(state.compareZoom * 100));
+      const displayVal = Math.round(state.compareZoom * 100);
+      slider.value = String(displayVal);
+      const pct = (displayVal / Number(slider.max || 300)) * 100;
+      slider.style.setProperty("--zoom-fill", `${pct}%`);
     }
     $("compareZoom").textContent =
       state.compareZoom > 0 ? `${Math.round(state.compareZoom * 100)}%` : "Fit";
@@ -553,8 +563,14 @@ export function createCompareView(actions: ViewActions): CompareViewController {
 
   // Zoom slider event listeners
   const zoomSlider = document.getElementById("compareZoomSlider") as HTMLInputElement | null;
+  if (zoomSlider) {
+    const initialPct = (Number(zoomSlider.value || 100) / Number(zoomSlider.max || 300)) * 100;
+    zoomSlider.style.setProperty("--zoom-fill", `${initialPct}%`);
+  }
   zoomSlider?.addEventListener("input", () => {
     const val = Number(zoomSlider.value);
+    const pct = (val / Number(zoomSlider.max || 300)) * 100;
+    zoomSlider.style.setProperty("--zoom-fill", `${pct}%`);
     setZoom(val === 0 ? 0 : val / 100);
   });
 

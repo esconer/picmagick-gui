@@ -132,6 +132,25 @@
 .menu-item.danger { color: var(--status-danger); }
 .menu-item.danger:hover { background: var(--status-danger-soft); }
 
+select {
+  color-scheme: dark;
+}
+select option,
+select optgroup {
+  color-scheme: dark;
+  background-color: var(--surface-overlay, #161b22);
+  color: var(--text-primary, #f0f6fc);
+}
+[data-theme="daylight"] select {
+  color-scheme: light;
+}
+[data-theme="daylight"] select option,
+[data-theme="daylight"] select optgroup {
+  color-scheme: light;
+  background-color: #ffffff;
+  color: #1f2328;
+}
+
 /* ─────────────────────────────── inputs ───────────────────────────────── */
 input[type="text"],
 input[type="search"],

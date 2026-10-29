@@ -84,6 +84,7 @@ svg { display: block; fill: none; stroke: currentColor; stroke-width: 1.5; strok
   overflow: hidden;
 }
 
+.sr-only,
 .visually-hidden {
   position: absolute !important;
   width: 1px;
