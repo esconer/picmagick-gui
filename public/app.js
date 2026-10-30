@@ -1777,6 +1777,93 @@ function initSplitPanes() {
   setupResizer(resizerPlan, "right");
 }
 
+// src/client/microinteractions.ts
+var SPOTLIGHT_SELECTOR = ".format-card, .stat.tile, .preflight-tile, .plan-hero";
+var STAGGER_CONTAINERS = [
+  "#formatCards",
+  "#moreFormats",
+  ".stat-row",
+  ".preflight",
+  "#planWarnings",
+  "#folderSplit",
+  "#compareLadder",
+  "#healthBody"
+];
+function initMicrointeractions() {
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (!reducedMotion) {
+    document.addEventListener("pointermove", (event) => {
+      const target = event.target?.closest(SPOTLIGHT_SELECTOR);
+      if (!target)
+        return;
+      const rect = target.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      target.style.setProperty("--mouse-x", `${x.toFixed(0)}px`);
+      target.style.setProperty("--mouse-y", `${y.toFixed(0)}px`);
+    }, { passive: true });
+  }
+  const scrollObserver = !reducedMotion && "IntersectionObserver" in window ? new IntersectionObserver((entries, observer) => {
+    for (const entry of entries) {
+      if (entry.isIntersecting) {
+        entry.target.classList.add("is-visible");
+        observer.unobserve(entry.target);
+      }
+    }
+  }, { rootMargin: "0px 0px -12px 0px", threshold: 0.08 }) : null;
+  const applyStaggerAndReveal = () => {
+    for (const selector of STAGGER_CONTAINERS) {
+      const container = document.querySelector(selector);
+      if (!container)
+        continue;
+      const children = Array.from(container.children);
+      children.forEach((child, index) => {
+        child.style.setProperty("--stagger-i", String(Math.min(index, 14)));
+      });
+    }
+    if (scrollObserver) {
+      const scrollItems = document.querySelectorAll(".group, .folder-row, .activity-row:not(.is-visible)");
+      scrollItems.forEach((el) => {
+        if (!el.classList.contains("is-visible")) {
+          el.classList.add("reveal-on-scroll");
+          scrollObserver.observe(el);
+        }
+      });
+    }
+  };
+  applyStaggerAndReveal();
+  const workspace = document.getElementById("workspace");
+  if (workspace && "MutationObserver" in window) {
+    let rafId = 0;
+    const mo = new MutationObserver(() => {
+      if (rafId)
+        return;
+      rafId = window.requestAnimationFrame(() => {
+        rafId = 0;
+        applyStaggerAndReveal();
+      });
+    });
+    mo.observe(workspace, { childList: true, subtree: true });
+  }
+  if (workspace) {
+    workspace.dataset.mobilePane = "library";
+    const rail = document.getElementById("contextRail");
+    rail?.addEventListener("click", (event) => {
+      const btn = event.target.closest(".rail-step");
+      const step = btn?.dataset.step;
+      if (!step)
+        return;
+      if (step === "source" || step === "select") {
+        workspace.dataset.mobilePane = "library";
+      } else if (step === "output") {
+        workspace.dataset.mobilePane = "recipe";
+      } else if (step === "review" || step === "run") {
+        workspace.dataset.mobilePane = "plan";
+      }
+    });
+  }
+}
+
 // src/client/views/audit.ts
 var loading = (label) => `<div class="empty-state"><span class="spinner"></span><p class="empty-title">${escapeHtml(label)}</p><p class="empty-note">This runs locally; nothing leaves your machine.</p></div>`;
 var errorBox = (message) => `<p class="inline-msg">${escapeHtml(message)}</p>`;
@@ -4158,6 +4245,7 @@ var toggleOverflow = () => {
 var boot = async () => {
   applyTheme(storedTheme(), false);
   initSplitPanes();
+  initMicrointeractions();
   try {
     const status = await api("status");
     applyStatusMeta(status);

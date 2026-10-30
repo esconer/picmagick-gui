@@ -30,6 +30,7 @@ import { createLibrary, type LibraryController } from "./library";
 import { createPlan, type PlanController } from "./plan";
 import { createRunLifecycle, type RunLifecycle } from "./run-lifecycle";
 import { initSplitPanes } from "./split-panes";
+import { initMicrointeractions } from "./microinteractions";
 import { state } from "./state";
 import type {
   AppUpdateStatus,
@@ -1540,6 +1541,7 @@ const toggleOverflow = (): void => {
 const boot = async (): Promise<void> => {
   applyTheme(storedTheme(), false);
   initSplitPanes();
+  initMicrointeractions();
 
   try {
     const status = await api<Status>("status");

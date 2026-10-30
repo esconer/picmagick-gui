@@ -1,0 +1,631 @@
+/* ==========================================================================
+   premium.css — Flagship design system: ambient aurora motion, cursor-tracked
+   specular glassmorphism, generous whitespace, staggered spring animations,
+   conversion-focused hero polish, and responsive breakpoints.
+   ========================================================================== */
+
+:root {
+  /* Upgraded rhythm & generous whitespace */
+  --h-identity: 60px;
+  --h-rail: 48px;
+  --h-pane-head: 50px;
+  --h-pane-foot: 40px;
+
+  /* Spring & fluid motion curves */
+  --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-snappy: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-enter: 420ms;
+
+  /* Specular lighting & acrylic glass tokens */
+  --specular-border: color-mix(in srgb, var(--text-primary) 9%, transparent);
+  --specular-inset: inset 0 1px 0 0 color-mix(in srgb, #ffffff 9%, transparent);
+  --surface-acrylic: color-mix(in srgb, var(--surface-pane) 76%, transparent);
+  --card-surface: linear-gradient(
+    165deg,
+    color-mix(in srgb, var(--surface-raised) 92%, var(--text-primary) 3%) 0%,
+    color-mix(in srgb, var(--surface-raised) 98%, var(--surface-canvas)) 100%
+  );
+}
+
+[data-theme="daylight"],
+[data-theme="sepia"] {
+  --specular-inset: inset 0 1px 0 0 rgba(255, 255, 255, 0.75);
+  --surface-acrylic: color-mix(in srgb, var(--surface-pane) 84%, transparent);
+}
+
+/* ── 1. Ambient Aurora Canvas & Mode Shift ─────────────────────────────── */
+.app {
+  position: relative;
+  padding-bottom: 2px;
+  background: var(--surface-canvas);
+  isolation: isolate;
+}
+
+.app::before,
+.app::after {
+  content: "";
+  position: fixed;
+  pointer-events: none;
+  z-index: -1;
+  border-radius: 50%;
+  filter: blur(90px);
+  opacity: 0.45;
+  transition: background 800ms var(--ease-spring), transform 800ms var(--ease-spring);
+  animation: aurora-drift 22s ease-in-out infinite alternate;
+}
+
+.app::before {
+  top: -180px;
+  right: 8%;
+  width: 680px;
+  height: 420px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--action-primary) 26%, transparent) 0%, transparent 70%);
+}
+
+.app::after {
+  bottom: -200px;
+  left: 5%;
+  width: 560px;
+  height: 380px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent-2) 18%, transparent) 0%, transparent 70%);
+  animation-delay: -11s;
+}
+
+/* Shift ambient light signature when in Videos mode */
+.app[data-media-mode="video"]::before {
+  background: radial-gradient(circle, color-mix(in srgb, var(--violet) 32%, transparent) 0%, transparent 70%);
+  transform: translate3d(-40px, 20px, 0) scale(1.08);
+}
+
+.app[data-media-mode="video"]::after {
+  background: radial-gradient(circle, color-mix(in srgb, var(--action-primary) 24%, transparent) 0%, transparent 70%);
+}
+
+@keyframes aurora-drift {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(-30px, 18px, 0) scale(1.06); }
+  100% { transform: translate3d(24px, -14px, 0) scale(0.96); }
+}
+
+/* ── 2. Clean Typography & Optical Hierarchy ───────────────────────────── */
+body {
+  letter-spacing: -0.008em;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+.brand-text strong {
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+}
+
+.pane-head h2 {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.09em;
+  color: var(--text-secondary);
+}
+
+.group-head h3 {
+  font-size: 13.5px;
+  font-weight: 620;
+  letter-spacing: -0.015em;
+}
+
+/* ── 3. Glassmorphic Identity Header & Floating Pill Rail ──────────────── */
+.identity {
+  padding: 0 var(--sp-6);
+  background: var(--surface-acrylic);
+  -webkit-backdrop-filter: blur(20px) saturate(170%);
+  backdrop-filter: blur(20px) saturate(170%);
+  border-bottom: 1px solid var(--border-subtle);
+  box-shadow: var(--specular-inset);
+}
+
+#modeSwitch {
+  padding: 3px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--surface-sunken) 90%, transparent);
+  border: 1px solid var(--border-default);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.22);
+}
+
+#modeSwitch button {
+  min-height: 28px;
+  padding: 4px 15px;
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  transition: all 220ms var(--ease-spring);
+}
+
+#modeSwitch button[aria-pressed="true"] {
+  background: var(--accent-gradient);
+  color: var(--action-on-primary);
+  box-shadow:
+    0 1px 0 color-mix(in srgb, #fff 25%, transparent) inset,
+    0 4px 14px color-mix(in srgb, var(--action-primary) 38%, transparent);
+}
+
+.library-pill {
+  height: 34px;
+  padding: 0 15px;
+  background: var(--card-surface);
+  border-color: var(--border-default);
+  box-shadow: var(--specular-inset), var(--shadow-sm);
+  transition: transform 180ms var(--ease-spring), border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.library-pill:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--action-primary) 50%, var(--border-strong));
+  box-shadow: var(--specular-inset), 0 6px 18px color-mix(in srgb, var(--action-primary) 14%, transparent);
+}
+
+/* Modern Floating Pill Stepper (replaces heavy polygon chevrons) */
+.rail {
+  gap: 8px;
+  padding: 6px var(--sp-6);
+  background: transparent;
+  border-bottom: 0;
+}
+
+.rail-step,
+.rail-step:first-child {
+  clip-path: none;
+  margin-left: 0 !important;
+  min-width: 136px;
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--surface-pane) 65%, transparent);
+  transition: all 220ms var(--ease-spring);
+}
+
+.rail-step:hover {
+  background: color-mix(in srgb, var(--surface-raised) 88%, transparent);
+  border-color: var(--border-default);
+  transform: translateY(-1px);
+}
+
+.rail-step[data-state="current"] {
+  background: var(--card-surface);
+  border-color: color-mix(in srgb, var(--action-primary) 45%, var(--border-default));
+  box-shadow:
+    var(--specular-inset),
+    0 6px 20px -4px color-mix(in srgb, var(--action-primary) 22%, transparent);
+}
+
+.rail-step[data-state="current"]::after {
+  display: none;
+}
+
+.rail-step[data-state="current"] .rail-icon {
+  background: var(--accent-gradient);
+  border-color: transparent;
+  color: var(--action-on-primary);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--action-primary) 45%, transparent);
+}
+
+/* ── 4. Generous Whitespace & Specular Cockpit Panes ───────────────────── */
+.workspace {
+  padding: 2px 14px 12px;
+}
+
+.pane {
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--border-default) 78%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--surface-pane) 94%, var(--text-primary) 2%) 0%,
+    color-mix(in srgb, var(--surface-pane) 98%, transparent) 100%
+  );
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  box-shadow: var(--specular-inset), var(--shadow-md);
+  transition: border-color 220ms ease, box-shadow 220ms ease;
+}
+
+.pane:focus-within {
+  border-color: color-mix(in srgb, var(--action-primary) 32%, var(--border-default));
+}
+
+.pane-head {
+  padding: 0 18px;
+  background: color-mix(in srgb, var(--surface-pane) 65%, transparent);
+}
+
+.group {
+  padding: 20px 18px;
+}
+
+.plan-scroll {
+  gap: 16px;
+  padding: 18px 18px 28px;
+}
+
+.source-card {
+  margin: 4px 14px 12px;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--card-surface);
+  box-shadow: var(--specular-inset);
+}
+
+/* ── 5. Cursor-Tracked Spotlight Cards & Microinteractions ─────────────── */
+.format-card,
+.stat.tile,
+.preflight-tile,
+.plan-hero {
+  position: relative;
+  overflow: hidden;
+  background: var(--card-surface);
+  box-shadow: var(--specular-inset);
+  transition:
+    transform 220ms var(--ease-spring),
+    border-color 220ms var(--ease-standard),
+    box-shadow 220ms var(--ease-standard);
+}
+
+/* Dynamic radial spotlight following cursor (--mouse-x, --mouse-y) */
+.format-card::before,
+.stat.tile::before,
+.preflight-tile::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    260px circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+    color-mix(in srgb, var(--action-primary) 13%, transparent),
+    transparent 70%
+  );
+  opacity: 0;
+  transition: opacity 250ms ease;
+  pointer-events: none;
+}
+
+.format-card:hover::before,
+.stat.tile:hover::before,
+.preflight-tile:hover::before {
+  opacity: 1;
+}
+
+.format-card {
+  min-height: 84px;
+  padding: 12px 14px;
+  border-radius: 12px;
+}
+
+.format-card:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--action-primary) 40%, var(--border-strong));
+  box-shadow:
+    var(--specular-inset),
+    0 10px 24px -8px rgba(0, 0, 0, 0.32);
+}
+
+.format-card:active:not(:disabled) {
+  transform: translateY(0) scale(0.985);
+}
+
+.format-card[aria-checked="true"] {
+  border-color: color-mix(in srgb, var(--action-primary) 72%, var(--border-default));
+  background: linear-gradient(
+    165deg,
+    color-mix(in srgb, var(--action-primary) 18%, var(--surface-raised)) 0%,
+    color-mix(in srgb, var(--action-primary) 5%, var(--surface-raised)) 100%
+  );
+  box-shadow:
+    var(--specular-inset),
+    0 0 0 1px color-mix(in srgb, var(--action-primary) 32%, transparent),
+    0 12px 28px -6px color-mix(in srgb, var(--action-primary) 25%, transparent);
+}
+
+/* Pre-flight pill buttons with visible icons & spring lift */
+.preflight-tile {
+  flex-direction: row;
+  justify-content: flex-start;
+  gap: 9px;
+  min-height: 48px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  text-align: left;
+}
+
+.preflight-tile svg {
+  display: block;
+  flex: 0 0 auto;
+  color: var(--action-primary);
+  transition: transform 220ms var(--ease-spring);
+}
+
+.preflight-tile:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--action-primary) 42%, var(--border-strong));
+  box-shadow: var(--specular-inset), 0 8px 20px -6px rgba(0, 0, 0, 0.26);
+}
+
+.preflight-tile:hover:not(:disabled) svg {
+  transform: scale(1.12) rotate(-4deg);
+}
+
+/* ── 6. Conversion-Focused Hero Card & Shimmer Start CTA ───────────────── */
+.plan-hero {
+  padding: 20px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--action-primary) 26%, var(--border-default));
+  background:
+    radial-gradient(380px circle at var(--mouse-x, 85%) var(--mouse-y, 15%), color-mix(in srgb, var(--action-primary) 14%, transparent), transparent 70%),
+    linear-gradient(155deg, color-mix(in srgb, var(--surface-raised) 96%, var(--text-primary) 3%), var(--surface-pane));
+  box-shadow:
+    var(--specular-inset),
+    0 14px 34px -10px rgba(0, 0, 0, 0.3);
+}
+
+.hero-num {
+  font-size: clamp(28px, 2.5vw, 38px);
+  font-weight: 680;
+  letter-spacing: -0.045em;
+}
+
+.hero-delta {
+  padding: 4px 11px;
+  border-radius: var(--radius-pill);
+  background: var(--status-success-soft);
+  border: 1px solid color-mix(in srgb, var(--status-success) 34%, transparent);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--status-success) 18%, transparent);
+  font-size: var(--fs-sm);
+  transition: transform 240ms var(--ease-spring);
+}
+
+.hero-delta:not(:empty):hover {
+  transform: scale(1.05);
+}
+
+.hero-meter {
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.hero-meter::after {
+  display: none;
+}
+
+.hero-meter > div {
+  background: var(--accent-gradient);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--action-primary) 50%, transparent);
+  transition: transform 420ms var(--ease-spring);
+}
+
+/* Primary Conversion CTA Button with Subtle Ambient Shimmer */
+.plan-cta {
+  padding: 14px 18px 13px;
+  background: var(--surface-acrylic);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+
+.plan-cta #btnStart {
+  position: relative;
+  overflow: hidden;
+  min-height: 48px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  transition:
+    transform 200ms var(--ease-spring),
+    box-shadow 200ms var(--ease-spring),
+    background 200ms ease;
+}
+
+.plan-cta #btnStart:not(:disabled)::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -120%;
+  width: 65%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.22),
+    transparent
+  );
+  transform: skewX(-22deg);
+  animation: cta-shimmer 6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes cta-shimmer {
+  0%, 72% { left: -120%; }
+  100% { left: 160%; }
+}
+
+.plan-cta #btnStart:hover:not(:disabled) {
+  transform: translateY(-1.5px);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.3) inset,
+    0 14px 32px -4px color-mix(in srgb, var(--action-primary) 45%, transparent);
+}
+
+.plan-cta #btnStart:active:not(:disabled) {
+  transform: translateY(0) scale(0.99);
+}
+
+/* ── 7. Staggered Entrances & Scroll-Reveal Animations ─────────────────── */
+@keyframes item-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.format-card,
+.stat.tile,
+.warning-card,
+.folder-row,
+.ladder-card,
+.health-check {
+  animation: item-reveal var(--duration-enter) var(--ease-spring) both;
+  animation-delay: calc(var(--stagger-i, 0) * 38ms);
+}
+
+.reveal-on-scroll {
+  opacity: 0;
+  transform: translateY(10px);
+  transition:
+    opacity 360ms var(--ease-spring),
+    transform 360ms var(--ease-spring);
+}
+
+.reveal-on-scroll.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ── 8. Quiet-Until-Hovered Tree & Bento Recipe Grid ───────────────────── */
+.tree-row {
+  border-radius: 8px;
+  margin: 1px 8px;
+  padding-right: 10px;
+  transition: background 140ms ease, transform 140ms ease;
+}
+
+.tree-row .tree-pills {
+  opacity: 0;
+  transform: translateX(4px);
+  transition: opacity 150ms ease, transform 150ms var(--ease-spring);
+}
+
+.tree-row:hover .tree-pills,
+.tree-row:focus-within .tree-pills,
+.tree-row.excluded .tree-pills {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.bento-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.bento-grid-2 .field {
+  margin-top: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-raised) 55%, transparent);
+  box-shadow: var(--specular-inset);
+}
+
+.bento-grid-2 .field-head {
+  margin-bottom: 5px;
+}
+
+.bento-grid-2 .field-head label {
+  font-size: var(--fs-2xs);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+details.tinker-drawer {
+  margin-top: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-raised) 42%, transparent);
+  box-shadow: var(--specular-inset);
+  overflow: hidden;
+}
+
+details.tinker-drawer > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  transition: color 150ms ease, background 150ms ease;
+}
+
+details.tinker-drawer > summary:hover {
+  color: var(--text-primary);
+  background: var(--hover-bg);
+}
+
+details.tinker-drawer > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.tinker-drawer > summary::after {
+  content: "›";
+  font-size: 16px;
+  transition: transform 200ms var(--ease-spring);
+}
+
+details.tinker-drawer[open] > summary {
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+}
+
+details.tinker-drawer[open] > summary::after {
+  transform: rotate(90deg);
+}
+
+.tinker-drawer-body {
+  padding: 14px;
+  animation: item-reveal 260ms var(--ease-spring);
+}
+
+/* ── 9. Full Responsiveness (Tablet / Narrow Window Adaptation) ────────── */
+@media (max-width: 1120px) {
+  .preflight {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 920px) {
+  .workspace {
+    grid-template-columns: 1fr !important;
+    padding: 4px 10px 10px;
+  }
+
+  .pane-resizer {
+    display: none !important;
+  }
+
+  .workspace[data-mobile-pane="library"] .pane-recipe,
+  .workspace[data-mobile-pane="library"] .pane-plan,
+  .workspace[data-mobile-pane="recipe"] .pane-library,
+  .workspace[data-mobile-pane="recipe"] .pane-plan,
+  .workspace[data-mobile-pane="plan"] .pane-library,
+  .workspace[data-mobile-pane="plan"] .pane-recipe {
+    display: none;
+  }
+
+  .identity {
+    grid-template-columns: auto 1fr auto;
+    gap: var(--sp-3);
+    padding: 0 var(--sp-4);
+  }
+
+  .brand-version {
+    display: none;
+  }
+}

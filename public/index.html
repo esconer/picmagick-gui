@@ -20,6 +20,8 @@
 <link rel="stylesheet" href="/css/components.css">
 <link rel="stylesheet" href="/css/views.css">
 <link rel="stylesheet" href="/css/themes.css">
+<link rel="stylesheet" href="/css/sleek.css">
+<link rel="stylesheet" href="/css/premium.css">
 </head>
 <body>
 
@@ -57,7 +59,7 @@
   </defs>
 </svg>
 
-<div class="app" id="app">
+<div class="app" id="app" data-media-mode="image">
 
   <!-- ─────────────────────────── identity bar ─────────────────────────── -->
   <header class="identity" id="identityBar">
@@ -321,62 +323,72 @@
           </div>
 
           <div id="videoTinkerOpts" class="hidden">
-            <div class="field">
-              <div class="field-head"><label for="videoContainer">Container</label></div>
-              <select id="videoContainer">
-                <option value="mp4">MP4 (.mp4) — Universal / Apple / Web</option>
-                <option value="mkv">Matroska (.mkv) — Tinkerer / Multi-track</option>
-                <option value="webm">WebM (.webm) — VP9 only</option>
-              </select>
-            </div>
-            <div class="field">
-              <div class="field-head"><label for="videoMaxRes">Max resolution</label></div>
-              <select id="videoMaxRes">
-                <option value="0">Keep original resolution (Default)</option>
-                <option value="2160">Cap at 4K (2160p)</option>
-                <option value="1440">Cap at 1440p (2K)</option>
-                <option value="1080">Cap at 1080p (Full HD)</option>
-                <option value="720">Cap at 720p (HD)</option>
-              </select>
-            </div>
-            <div class="field">
-              <div class="field-head"><label for="videoMaxFps">Frame rate cap</label></div>
-              <select id="videoMaxFps">
-                <option value="0">Keep original frame rate (Default)</option>
-                <option value="60">Cap at 60 fps</option>
-                <option value="30">Cap at 30 fps</option>
-              </select>
-            </div>
-            <div class="field">
-              <div class="field-head"><label for="videoAudioMode">Audio stream</label></div>
-              <select id="videoAudioMode">
-                <option value="auto">Smart Auto (Copy AAC/Opus, convert raw PCM)</option>
-                <option value="copy">Copy original audio untouched</option>
-                <option value="opus128">Convert to Opus 128 kbps (High quality)</option>
-                <option value="opus64">Convert to Opus 64 kbps (Space saver)</option>
-                <option value="mute">Strip audio track (Mute)</option>
-              </select>
-            </div>
-            <div class="field" id="videoGrainField">
-              <div class="field-head">
-                <label for="videoFilmGrain">AV1 film grain synthesis</label>
-                <output id="videoFilmGrainOut" class="value-out" for="videoFilmGrain">Off (0)</output>
+            <!-- 2x2 Bento Grid for primary stream controls -->
+            <div class="bento-grid-2">
+              <div class="field">
+                <div class="field-head"><label for="videoContainer">Container</label></div>
+                <select id="videoContainer">
+                  <option value="mp4">MP4 (.mp4) — Universal / Apple / Web</option>
+                  <option value="mkv">Matroska (.mkv) — Tinkerer / Multi-track</option>
+                  <option value="webm">WebM (.webm) — VP9 only</option>
+                </select>
               </div>
-              <input id="videoFilmGrain" type="range" min="0" max="24" step="2" value="0">
-              <p class="note">Denoises sensor grain and synthesizes it on decode (saves 15–25% bitrate on noisy clips).</p>
+              <div class="field">
+                <div class="field-head"><label for="videoMaxRes">Max resolution</label></div>
+                <select id="videoMaxRes">
+                  <option value="0">Keep original resolution (Default)</option>
+                  <option value="2160">Cap at 4K (2160p)</option>
+                  <option value="1440">Cap at 1440p (2K)</option>
+                  <option value="1080">Cap at 1080p (Full HD)</option>
+                  <option value="720">Cap at 720p (HD)</option>
+                </select>
+              </div>
+              <div class="field">
+                <div class="field-head"><label for="videoMaxFps">Frame rate cap</label></div>
+                <select id="videoMaxFps">
+                  <option value="0">Keep original frame rate (Default)</option>
+                  <option value="60">Cap at 60 fps</option>
+                  <option value="30">Cap at 30 fps</option>
+                </select>
+              </div>
+              <div class="field">
+                <div class="field-head"><label for="videoAudioMode">Audio stream</label></div>
+                <select id="videoAudioMode">
+                  <option value="auto">Smart Auto (Copy AAC/Opus, convert raw PCM)</option>
+                  <option value="copy">Copy original audio untouched</option>
+                  <option value="opus128">Convert to Opus 128 kbps (High quality)</option>
+                  <option value="opus64">Convert to Opus 64 kbps (Space saver)</option>
+                  <option value="mute">Strip audio track (Mute)</option>
+                </select>
+              </div>
             </div>
-            <label class="check">
-              <input id="videoTenBit" type="checkbox" checked>
-              <span>10-bit color depth (yuv420p10le) <span class="check-meta">prevents banding</span></span>
-            </label>
-            <label class="check">
-              <input id="videoSkipEfficient" type="checkbox" checked>
-              <span>Copy videos already in target codec or larger after encode</span>
-            </label>
-            <div class="field">
-              <div class="field-head"><label for="videoCustomParams">Custom encoder params</label></div>
-              <input id="videoCustomParams" type="text" class="mono" spellcheck="false" placeholder="e.g. enable-qm=1:qm-min=0">
-            </div>
+
+            <!-- Collapsible Advanced Tinkerer Drawer -->
+            <details class="tinker-drawer">
+              <summary>Advanced Encoder Tuning (10-bit, Grain, Flags)</summary>
+              <div class="tinker-drawer-body">
+                <div class="field" id="videoGrainField">
+                  <div class="field-head">
+                    <label for="videoFilmGrain">AV1 film grain synthesis</label>
+                    <output id="videoFilmGrainOut" class="value-out" for="videoFilmGrain">Off (0)</output>
+                  </div>
+                  <input id="videoFilmGrain" type="range" min="0" max="24" step="2" value="0">
+                  <p class="note">Denoises sensor grain and synthesizes it on decode (saves 15–25% bitrate on noisy clips).</p>
+                </div>
+                <label class="check" style="margin-top: 10px;">
+                  <input id="videoTenBit" type="checkbox" checked>
+                  <span>10-bit color depth (yuv420p10le) <span class="check-meta">prevents banding</span></span>
+                </label>
+                <label class="check">
+                  <input id="videoSkipEfficient" type="checkbox" checked>
+                  <span>Copy videos already in target codec or larger after encode</span>
+                </label>
+                <div class="field">
+                  <div class="field-head"><label for="videoCustomParams">Custom encoder params</label></div>
+                  <input id="videoCustomParams" type="text" class="mono" spellcheck="false" placeholder="e.g. enable-qm=1:qm-min=0">
+                </div>
+              </div>
+            </details>
           </div>
         </section>
 

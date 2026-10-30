@@ -1,0 +1,276 @@
+/* ==========================================================================
+   sleek.css — Linear/Raycast-inspired specular depth, modern pill rail,
+   bento recipe grid, quiet tree rows, and theme-harmonic meters.
+   ========================================================================== */
+
+:root {
+  --h-rail: 46px;
+  --specular-top: inset 0 1px 0 0 color-mix(in srgb, var(--text-primary) 7%, transparent);
+  --card-gradient: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--surface-raised) 95%, var(--text-primary) 3%) 0%,
+    var(--surface-raised) 100%
+  );
+}
+
+/* Subtle ambient aura shift when in Videos mode */
+.app[data-media-mode="video"] {
+  background:
+    radial-gradient(1100px 520px at 78% -12%, color-mix(in srgb, var(--violet) 11%, transparent), transparent 65%),
+    radial-gradient(800px 400px at 18% -15%, color-mix(in srgb, var(--accent-2) 7%, transparent), transparent 60%),
+    var(--surface-canvas);
+}
+
+/* ── 1. Specular Glass Depth on Panes, Cards & Tiles ───────────────────── */
+.pane {
+  border-color: color-mix(in srgb, var(--border-default) 75%, transparent);
+  box-shadow: var(--specular-top), var(--shadow-sm);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--surface-pane) 97%, var(--text-primary) 2%) 0%,
+    var(--surface-pane) 100%
+  );
+}
+
+.source-card,
+.stat.tile,
+.result-box,
+.health-check,
+.result-card {
+  background: var(--card-gradient);
+  border-color: color-mix(in srgb, var(--border-default) 70%, transparent);
+  box-shadow: var(--specular-top);
+  transition: border-color var(--duration-fast) var(--ease-standard),
+              transform var(--duration-fast) var(--ease-standard);
+}
+
+.stat.tile:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+}
+
+/* ── 2. Modern Floating Pill Stepper (Replaces Polygon Chevrons) ───────── */
+.rail {
+  gap: 6px;
+  padding: 5px var(--sp-5);
+  background: color-mix(in srgb, var(--surface-pane) 65%, var(--surface-canvas));
+}
+
+.rail-step,
+.rail-step:first-child {
+  clip-path: none;
+  margin-left: 0 !important;
+  min-width: 132px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  transition: all var(--duration-fast) var(--ease-standard);
+}
+
+.rail-step:hover {
+  background: color-mix(in srgb, var(--surface-raised) 80%, transparent);
+  border-color: var(--border-subtle);
+}
+
+.rail-step[data-state="current"] {
+  background: var(--card-gradient);
+  border-color: color-mix(in srgb, var(--action-primary) 42%, var(--border-default));
+  box-shadow: var(--specular-top), 0 4px 14px color-mix(in srgb, var(--action-primary) 12%, transparent);
+}
+
+.rail-step[data-state="current"]::after {
+  left: 12px;
+  right: 12px;
+  bottom: -1px;
+  height: 2px;
+}
+
+.rail-sep {
+  display: inline-block;
+  color: var(--border-default);
+  font-size: 13px;
+  user-select: none;
+}
+
+/* ── 3. Sleek Mode Switcher Pill in Header ─────────────────────────────── */
+#modeSwitch {
+  padding: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-default);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+#modeSwitch button {
+  min-height: 28px;
+  padding: 4px 14px;
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+#modeSwitch button[aria-pressed="true"] {
+  background: var(--accent-gradient);
+  color: var(--action-on-primary);
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--action-primary) 35%, transparent);
+}
+
+/* ── 4. Format Cards & 2-Column Bento Grid for Tinkerer Controls ───────── */
+.format-card {
+  min-height: 76px;
+  border-radius: 12px;
+  background: var(--card-gradient);
+  box-shadow: var(--specular-top);
+  transition: transform var(--duration-fast) var(--ease-out),
+              border-color var(--duration-fast) var(--ease-standard),
+              box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.format-card:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: var(--border-strong);
+}
+
+.format-card[aria-checked="true"] {
+  box-shadow:
+    var(--specular-top),
+    0 0 0 1px color-mix(in srgb, var(--action-primary) 40%, transparent),
+    0 10px 26px -6px color-mix(in srgb, var(--action-primary) 24%, transparent);
+}
+
+/* 2-Column Bento Grid for Video Stream Dropdowns */
+.bento-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.bento-grid-2 .field {
+  margin-top: 0;
+  padding: 10px 11px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-raised) 55%, transparent);
+}
+
+.bento-grid-2 .field-head {
+  margin-bottom: 5px;
+}
+
+.bento-grid-2 .field-head label {
+  font-size: var(--fs-2xs);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Collapsible Tinkerer Drawer */
+details.tinker-drawer {
+  margin-top: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-raised) 40%, transparent);
+  overflow: hidden;
+}
+
+details.tinker-drawer > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 12px;
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+details.tinker-drawer > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.tinker-drawer > summary::after {
+  content: "›";
+  font-size: 15px;
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+
+details.tinker-drawer[open] > summary {
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+}
+
+details.tinker-drawer[open] > summary::after {
+  transform: rotate(90deg);
+}
+
+.tinker-drawer-body {
+  padding: 12px;
+}
+
+/* ── 5. Quiet-Until-Hovered Library Tree Rows ──────────────────────────── */
+.tree-row {
+  border-radius: 6px;
+  margin: 1px 6px;
+  padding-right: 8px;
+}
+
+.tree-row[data-kind="file"] {
+  min-height: 40px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.tree-row .tree-pills {
+  opacity: 0;
+  transform: translateX(4px);
+  transition: opacity var(--duration-fast) var(--ease-standard),
+              transform var(--duration-fast) var(--ease-standard);
+}
+
+.tree-row:hover .tree-pills,
+.tree-row:focus-within .tree-pills,
+.tree-row.excluded .tree-pills {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* ── 6. Theme-Harmonic Plan Hero & Glowing Budget Meter ────────────────── */
+.plan-hero {
+  border-radius: 16px;
+  box-shadow: var(--specular-top), var(--shadow-md);
+}
+
+.hero-delta {
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--status-success-soft);
+  border: 1px solid color-mix(in srgb, var(--status-success) 30%, transparent);
+  font-size: var(--fs-sm);
+}
+
+.hero-delta[data-tone="bad"] {
+  background: var(--status-warning-soft);
+  border-color: color-mix(in srgb, var(--status-warning) 30%, transparent);
+}
+
+.hero-meter {
+  height: 8px;
+  background: var(--surface-sunken);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+.hero-meter::after {
+  display: none;
+}
+
+.hero-meter > div {
+  background: var(--accent-gradient);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--action-primary) 45%, transparent);
+}
