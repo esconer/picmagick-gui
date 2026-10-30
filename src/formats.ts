@@ -24,10 +24,10 @@ export function isOutputFormat(value: unknown): value is OutputFormat {
     && (OUTPUT_FORMATS as readonly string[]).includes(value);
 }
 
-export type QualityKind = "lossy" | "compression" | "rate";
+export type QualityKind = "lossy" | "compression" | "rate" | "crf-inverted";
 
 export type FormatSpec = {
-  id: OutputFormat;
+  id: OutputFormat | (string & {});
   label: string;
   shortLabel: string;
   summary: string;

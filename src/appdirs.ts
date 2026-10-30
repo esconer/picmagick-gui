@@ -25,6 +25,14 @@ export const BUNDLED_MAGICK_DIR = process.env.PICMAGIK_BUNDLED_MAGICK_DIR?.trim(
   ? path.resolve(process.env.PICMAGIK_BUNDLED_MAGICK_DIR.trim())
   : undefined;
 
+/** Official portable FFmpeg / FFprobe binaries. */
+export const FFMPEG_DIR = path.join(DATA_ROOT, "ffmpeg");
+
+/** Pre-bundled FFmpeg inside the packaged app, if present. */
+export const BUNDLED_FFMPEG_DIR = process.env.PICMAGIK_BUNDLED_FFMPEG_DIR?.trim()
+  ? path.resolve(process.env.PICMAGIK_BUNDLED_FFMPEG_DIR.trim())
+  : undefined;
+
 /** Generated quality-comparison previews. Safe to delete at any time. */
 export const PREVIEW_CACHE_DIR = path.join(DATA_ROOT, ".preview-cache");
 
