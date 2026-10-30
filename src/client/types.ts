@@ -5,7 +5,19 @@
  * invents conversion facts; every value here comes from the local server.
  */
 
-export type OutputFormat = "jxl" | "avif" | "webp" | "heic" | "jp2" | "jpeg" | "png";
+export type OutputFormat =
+  | "jxl"
+  | "avif"
+  | "webp"
+  | "heic"
+  | "jp2"
+  | "jpeg"
+  | "png"
+  | "av1"
+  | "hevc"
+  | "av1_hw"
+  | "hevc_hw"
+  | "vp9";
 
 export type Category = "image" | "raw" | "video" | "other";
 
@@ -25,7 +37,7 @@ export type MagickInfo = {
 };
 
 export type QualitySpec = {
-  kind: "lossy" | "compression" | "rate";
+  kind: "lossy" | "compression" | "rate" | "crf-inverted";
   min: number;
   max: number;
   step: number;

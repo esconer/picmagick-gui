@@ -5,7 +5,7 @@
  * job; on a dropped connection we re-read /api/job/state instead of inventing a
  * completion state.
  */
-import { api } from "./api";
+import { api, resolveApiRoute } from "./api";
 import { fmt } from "./dom";
 import { resetRun, state } from "./state";
 import type {
@@ -172,7 +172,7 @@ export function createRunLifecycle(options: RunLifecycleOptions): RunLifecycle {
 
   const stream = (jobId: string): void => {
     state.es?.close();
-    const source = new EventSource(`/api/stream/${encodeURIComponent(jobId)}`);
+    const source = new EventSource(`/api/${resolveApiRoute(`stream/${encodeURIComponent(jobId)}`)}`);
     state.es = source;
 
     source.onmessage = (message) => {

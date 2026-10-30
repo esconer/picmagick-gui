@@ -41,6 +41,9 @@ export function createFormatUi(options: FormatUiOptions): FormatUi {
   };
 
   const writable = (id: OutputFormat): boolean => {
+    if (state.mediaMode === "video") {
+      return Boolean(state.videoStatus?.ffmpeg?.formats?.[id]?.writable);
+    }
     const magick = state.status?.magick;
     if (!magick) return false;
     const support = magick.formats?.[id];
@@ -49,6 +52,11 @@ export function createFormatUi(options: FormatUiOptions): FormatUi {
   };
 
   const qualityText = (spec: FormatSpec, quality: number): string => {
+    if ((spec.quality.kind as string) === "crf-inverted") {
+      const base = spec.id === "hevc" || spec.id === "hevc_hw" ? 54 : 58;
+      const crf = base - Math.round(quality / 2);
+      return `q${quality} (CRF ${crf})`;
+    }
     if (spec.quality.kind === "compression") return `level ${Math.floor(quality / 10)}`;
     if (spec.quality.kind === "rate") {
       const ratio = spec.quality.rateTable?.[String(quality)];
@@ -59,16 +67,19 @@ export function createFormatUi(options: FormatUiOptions): FormatUi {
 
   const card = (spec: FormatSpec): string => {
     const available = writable(spec.id);
-    const support = state.status?.magick?.formats?.[spec.id];
+    const support = state.mediaMode === "video"
+      ? state.videoStatus?.ffmpeg?.formats?.[spec.id]
+      : state.status?.magick?.formats?.[spec.id];
     const selected = state.currentFormat === spec.id;
     const meta = spec.summary;
+    const isRecommended = state.mediaMode === "video" ? spec.id === "av1" : spec.id === "avif";
     const title = available
       ? `${spec.label} — ${spec.summary}`
-      : `${spec.label} cannot be encoded by this ImageMagick build (format mode "${support?.mode ?? "missing"}").`;
+      : `${spec.label} cannot be encoded by this build (format mode "${support?.mode ?? "missing"}").`;
     return `<button class="format-card" type="button" role="radio" aria-checked="${selected}" data-format="${spec.id}"${available ? "" : " disabled aria-disabled=\"true\""} title="${escapeHtml(title)}">
       <span class="format-card-top">
         <span class="format-icon">${escapeHtml(spec.shortLabel)}</span>
-        ${spec.id === "avif" ? `<span class="format-recommended">Recommended</span>` : ""}
+        ${isRecommended ? `<span class="format-recommended">Recommended</span>` : ""}
         ${available ? "" : `<span class="format-lock">${icon("lock", 12)}</span>`}
       </span>
       <span class="format-name">${escapeHtml(spec.label)}</span>
@@ -77,17 +88,21 @@ export function createFormatUi(options: FormatUiOptions): FormatUi {
   };
 
   const refreshCards = (): void => {
+    const isVideo = state.mediaMode === "video";
+    const primaryIds: OutputFormat[] = isVideo ? ["av1", "hevc", "av1_hw", "hevc_hw"] : PRIMARY;
+    const moreIds: OutputFormat[] = isVideo ? ["vp9"] : MORE;
+
     const specs = Object.values(state.formatSpecs);
     const byId = new Map(specs.map((spec) => [spec.id, spec]));
     const make = (ids: OutputFormat[]): string =>
       ids.map((id) => byId.get(id)).filter((spec): spec is FormatSpec => Boolean(spec)).map(card).join("");
 
-    $("formatCards").innerHTML = make(PRIMARY);
-    $("moreFormats").innerHTML = make(MORE);
+    $("formatCards").innerHTML = make(primaryIds);
+    $("moreFormats").innerHTML = make(moreIds);
     $("moreFormats").classList.toggle("hidden", !moreOpen);
     $("btnMoreFormats").setAttribute("aria-expanded", String(moreOpen));
     $("btnMoreFormats").textContent = moreOpen ? "Fewer formats" : "More formats";
-    if (!moreOpen && MORE.includes(state.currentFormat)) {
+    if (!moreOpen && moreIds.includes(state.currentFormat)) {
       moreOpen = true;
       $("moreFormats").classList.remove("hidden");
       $("btnMoreFormats").setAttribute("aria-expanded", "true");

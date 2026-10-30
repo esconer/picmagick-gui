@@ -1,3 +1,76 @@
+// src/client/state.ts
+var emptyRun = () => ({
+  id: null,
+  state: "idle",
+  total: 0,
+  done: 0,
+  converted: 0,
+  copied: 0,
+  skipped: 0,
+  failed: 0,
+  bytes: 0,
+  etaSeconds: null,
+  elapsedSeconds: null,
+  inFlight: 0,
+  startingRel: null,
+  startingBytes: null,
+  lastRel: null,
+  lastStatus: null,
+  note: null
+});
+var state = {
+  status: null,
+  tree: null,
+  lastScan: null,
+  excluded: new Set,
+  included: new Set,
+  excludedFiles: new Set,
+  includedFiles: new Set,
+  expanded: new Set,
+  filterQuery: "",
+  formatSpecs: {},
+  currentFormat: "avif",
+  formatMemory: {},
+  preview: null,
+  previewSeq: 0,
+  previewBusy: false,
+  run: emptyRun(),
+  currentJob: null,
+  lastJobId: null,
+  lastSummary: null,
+  lastManifestId: null,
+  lastJobError: null,
+  activity: [],
+  running: false,
+  starting: false,
+  es: null,
+  imStatus: null,
+  appUpdate: null,
+  lastEstimate: null,
+  lastSync: null,
+  view: "workspace",
+  compareRel: null,
+  compare: null,
+  compareVariant: 0,
+  compareMode: "split",
+  compareZoom: 0,
+  compareShowOriginal: true,
+  themeChoice: "auto",
+  booted: false,
+  mediaMode: "image",
+  videoDestMode: "merge",
+  videoCustomDestination: "",
+  videoStatus: null
+};
+var resetRun = (total) => {
+  state.run = { ...emptyRun(), total, state: "running" };
+  state.activity = [];
+  state.lastSummary = null;
+  state.lastManifestId = null;
+  state.lastJobError = null;
+  state.lastJobId = null;
+};
+
 // src/client/api.ts
 class ApiError extends Error {
   status;
@@ -7,9 +80,39 @@ class ApiError extends Error {
     this.status = status;
   }
 }
+var VIDEO_ROUTED_PATHS = new Set([
+  "preview",
+  "estimate",
+  "sync",
+  "duplicates",
+  "dates",
+  "compare",
+  "run",
+  "verify",
+  "manifests",
+  "undo",
+  "health"
+]);
+var VIDEO_ROUTED_PREFIXES = [
+  "stream/",
+  "jobs/",
+  "pause/",
+  "resume/",
+  "cancel/",
+  "job/state"
+];
+function resolveApiRoute(path) {
+  if (state.mediaMode === "video") {
+    const base = path.split("?")[0];
+    if (VIDEO_ROUTED_PATHS.has(base) || VIDEO_ROUTED_PREFIXES.some((prefix) => path.startsWith(prefix))) {
+      return `video/${path}`;
+    }
+  }
+  return path;
+}
 async function api(path, opts = {}) {
   const method = opts.method ?? "GET";
-  const res = await fetch("/api/" + path, {
+  const res = await fetch("/api/" + resolveApiRoute(path), {
     method,
     headers: method === "POST" ? { "content-type": "application/json" } : undefined,
     body: method === "POST" ? JSON.stringify(opts.body ?? {}) : undefined,
@@ -189,75 +292,6 @@ function nextDestinationOnFormatChange(current, source, oldSuffix, newSuffix, ca
   return fold(current) === fold(defaultDestination(source, oldSuffix)) ? defaultDestination(source, newSuffix) : current;
 }
 
-// src/client/state.ts
-var emptyRun = () => ({
-  id: null,
-  state: "idle",
-  total: 0,
-  done: 0,
-  converted: 0,
-  copied: 0,
-  skipped: 0,
-  failed: 0,
-  bytes: 0,
-  etaSeconds: null,
-  elapsedSeconds: null,
-  inFlight: 0,
-  startingRel: null,
-  startingBytes: null,
-  lastRel: null,
-  lastStatus: null,
-  note: null
-});
-var state = {
-  status: null,
-  tree: null,
-  lastScan: null,
-  excluded: new Set,
-  included: new Set,
-  excludedFiles: new Set,
-  includedFiles: new Set,
-  expanded: new Set,
-  filterQuery: "",
-  formatSpecs: {},
-  currentFormat: "avif",
-  formatMemory: {},
-  preview: null,
-  previewSeq: 0,
-  previewBusy: false,
-  run: emptyRun(),
-  currentJob: null,
-  lastJobId: null,
-  lastSummary: null,
-  lastManifestId: null,
-  lastJobError: null,
-  activity: [],
-  running: false,
-  starting: false,
-  es: null,
-  imStatus: null,
-  appUpdate: null,
-  lastEstimate: null,
-  lastSync: null,
-  view: "workspace",
-  compareRel: null,
-  compare: null,
-  compareVariant: 0,
-  compareMode: "split",
-  compareZoom: 0,
-  compareShowOriginal: true,
-  themeChoice: "auto",
-  booted: false
-};
-var resetRun = (total) => {
-  state.run = { ...emptyRun(), total, state: "running" };
-  state.activity = [];
-  state.lastSummary = null;
-  state.lastManifestId = null;
-  state.lastJobError = null;
-  state.lastJobId = null;
-};
-
 // src/client/format-ui.ts
 var PRIMARY = ["avif", "jxl", "webp", "jpeg"];
 var MORE = ["heic", "jp2", "png"];
@@ -272,6 +306,9 @@ function createFormatUi(options) {
     node.style.setProperty("--fill", `${Math.max(0, Math.min(100, percent)).toFixed(2)}%`);
   };
   const writable = (id) => {
+    if (state.mediaMode === "video") {
+      return Boolean(state.videoStatus?.ffmpeg?.formats?.[id]?.writable);
+    }
     const magick = state.status?.magick;
     if (!magick)
       return false;
@@ -281,6 +318,11 @@ function createFormatUi(options) {
     return id === "avif" ? Boolean(magick.avifWritable) : true;
   };
   const qualityText = (spec, quality) => {
+    if (spec.quality.kind === "crf-inverted") {
+      const base = spec.id === "hevc" || spec.id === "hevc_hw" ? 54 : 58;
+      const crf = base - Math.round(quality / 2);
+      return `q${quality} (CRF ${crf})`;
+    }
     if (spec.quality.kind === "compression")
       return `level ${Math.floor(quality / 10)}`;
     if (spec.quality.kind === "rate") {
@@ -291,14 +333,15 @@ function createFormatUi(options) {
   };
   const card = (spec) => {
     const available = writable(spec.id);
-    const support = state.status?.magick?.formats?.[spec.id];
+    const support = state.mediaMode === "video" ? state.videoStatus?.ffmpeg?.formats?.[spec.id] : state.status?.magick?.formats?.[spec.id];
     const selected = state.currentFormat === spec.id;
     const meta = spec.summary;
-    const title = available ? `${spec.label} — ${spec.summary}` : `${spec.label} cannot be encoded by this ImageMagick build (format mode "${support?.mode ?? "missing"}").`;
+    const isRecommended = state.mediaMode === "video" ? spec.id === "av1" : spec.id === "avif";
+    const title = available ? `${spec.label} — ${spec.summary}` : `${spec.label} cannot be encoded by this build (format mode "${support?.mode ?? "missing"}").`;
     return `<button class="format-card" type="button" role="radio" aria-checked="${selected}" data-format="${spec.id}"${available ? "" : ' disabled aria-disabled="true"'} title="${escapeHtml(title)}">
       <span class="format-card-top">
         <span class="format-icon">${escapeHtml(spec.shortLabel)}</span>
-        ${spec.id === "avif" ? `<span class="format-recommended">Recommended</span>` : ""}
+        ${isRecommended ? `<span class="format-recommended">Recommended</span>` : ""}
         ${available ? "" : `<span class="format-lock">${icon("lock", 12)}</span>`}
       </span>
       <span class="format-name">${escapeHtml(spec.label)}</span>
@@ -306,15 +349,18 @@ function createFormatUi(options) {
     </button>`;
   };
   const refreshCards = () => {
+    const isVideo = state.mediaMode === "video";
+    const primaryIds = isVideo ? ["av1", "hevc", "av1_hw", "hevc_hw"] : PRIMARY;
+    const moreIds = isVideo ? ["vp9"] : MORE;
     const specs = Object.values(state.formatSpecs);
     const byId = new Map(specs.map((spec) => [spec.id, spec]));
     const make = (ids) => ids.map((id) => byId.get(id)).filter((spec) => Boolean(spec)).map(card).join("");
-    $("formatCards").innerHTML = make(PRIMARY);
-    $("moreFormats").innerHTML = make(MORE);
+    $("formatCards").innerHTML = make(primaryIds);
+    $("moreFormats").innerHTML = make(moreIds);
     $("moreFormats").classList.toggle("hidden", !moreOpen);
     $("btnMoreFormats").setAttribute("aria-expanded", String(moreOpen));
     $("btnMoreFormats").textContent = moreOpen ? "Fewer formats" : "More formats";
-    if (!moreOpen && MORE.includes(state.currentFormat)) {
+    if (!moreOpen && moreIds.includes(state.currentFormat)) {
       moreOpen = true;
       $("moreFormats").classList.remove("hidden");
       $("btnMoreFormats").setAttribute("aria-expanded", "true");
@@ -600,7 +646,12 @@ function createLibrary(opts) {
     caseInsensitive: state.status?.caseInsensitive ?? true
   });
   const fold = (value) => state.status?.caseInsensitive ?? true ? value.toLowerCase() : value;
-  const allFiles = () => state.tree ? flatten(state.tree) : [];
+  const allFiles = () => {
+    if (!state.tree)
+      return [];
+    const list = flatten(state.tree);
+    return state.mediaMode === "video" ? list.filter((f) => f.category === "video") : list;
+  };
   const selected = () => {
     if (!state.tree)
       return [];
@@ -633,7 +684,8 @@ function createLibrary(opts) {
     return node.children.some((child) => nodeMatches(child, query));
   };
   const visibleFiles = (files, query, ancestorMatched) => {
-    const list = !query || ancestorMatched ? files : files.filter((file) => file.rel.toLowerCase().includes(query));
+    const modeFiltered = state.mediaMode === "video" ? files.filter((file) => file.category === "video") : files;
+    const list = !query || ancestorMatched ? modeFiltered : modeFiltered.filter((file) => file.rel.toLowerCase().includes(query));
     return [...list].sort(byName);
   };
   const thumb = (file) => {
@@ -796,28 +848,32 @@ function createLibrary(opts) {
     name.title = node.rel;
     if (hasKids)
       name.setAttribute("aria-expanded", isOpen ? "true" : "false");
+    const isVideoMode = state.mediaMode === "video";
+    const folderCount = isVideoMode ? node.videoCount : node.count;
+    const folderBytes = isVideoMode ? node.videoBytes : node.bytes;
     const count = document.createElement("span");
     count.className = "tree-count";
-    count.textContent = node.count.toLocaleString();
-    count.title = `${node.count.toLocaleString()} files in this folder and below`;
+    count.textContent = folderCount.toLocaleString();
+    count.title = `${folderCount.toLocaleString()} ${isVideoMode ? "videos" : "files"} in this folder and below`;
     const size = document.createElement("span");
     size.className = "tree-size";
-    size.textContent = fmt(node.bytes);
+    size.textContent = fmt(folderBytes);
     row.append(check, caret, folder, name);
-    if (node.count > 0)
+    if (folderCount > 0)
       row.append(count);
     row.append(size);
-    if (node.rawBytes > 0) {
+    if (!isVideoMode && node.rawBytes > 0) {
       const badge = document.createElement("span");
       badge.className = "tree-badge raw";
       badge.textContent = `RAW ${fmt(node.rawBytes)}`;
       row.append(badge);
     }
-    if (node.imageCount + node.rawCount === 0) {
+    const nothingConvertible = isVideoMode ? node.videoCount === 0 : node.imageCount + node.rawCount === 0;
+    if (nothingConvertible) {
       const badge = document.createElement("span");
       badge.className = "tree-badge dead";
-      badge.textContent = "nothing convertible";
-      badge.title = `${node.otherCount} other files, ${fmt(node.otherBytes)} (junk, video or cache)`;
+      badge.textContent = isVideoMode ? "no videos" : "nothing convertible";
+      badge.title = isVideoMode ? "No video files found in this folder or its subfolders." : `${node.otherCount} other files, ${fmt(node.otherBytes)} (junk, video or cache)`;
       row.append(badge);
     }
     const kids = document.createElement("div");
@@ -1385,7 +1441,7 @@ function createRunLifecycle(options) {
   };
   const stream = (jobId) => {
     state.es?.close();
-    const source = new EventSource(`/api/stream/${encodeURIComponent(jobId)}`);
+    const source = new EventSource(`/api/${resolveApiRoute(`stream/${encodeURIComponent(jobId)}`)}`);
     state.es = source;
     source.onmessage = (message) => {
       try {
@@ -2973,22 +3029,62 @@ var platformName = (platform) => {
   return platform || "Desktop";
 };
 var formatError = (error) => error instanceof Error ? error.message : String(error);
-var policy = () => ({
-  excludedFolders: [...state.excluded],
-  includedFolders: [...state.included],
-  excludedFiles: [...state.excludedFiles],
-  includedFiles: [...state.includedFiles],
-  extEnabled: { ...extEnabled },
-  minSizeBytes: Math.round(input("minsize").valueAsNumber * 1024 * 1024),
-  copyUndersized: input("copyUndersized").checked,
-  includeRaw: input("includeRaw").checked,
-  outputFormat: state.currentFormat,
-  qualities: [input("quality").valueAsNumber],
-  flattenGif: input("flattenGif").checked,
-  heicSpeed: input("heicSpeed").valueAsNumber
-});
+var policy = () => {
+  if (state.mediaMode === "video") {
+    return {
+      excludedFolders: [...state.excluded],
+      includedFolders: [...state.included],
+      excludedFiles: [...state.excludedFiles],
+      includedFiles: [...state.includedFiles],
+      extEnabled: { ...extEnabled },
+      minSizeBytes: Math.round(input("minsize").valueAsNumber * 1024 * 1024),
+      copyUndersized: input("copyUndersized").checked,
+      includeRaw: false,
+      outputFormat: state.currentFormat,
+      qualities: [input("quality").valueAsNumber],
+      flattenGif: false,
+      heicSpeed: input("heicSpeed").valueAsNumber,
+      destMode: state.videoDestMode,
+      container: input("videoContainer").value,
+      quality: input("quality").valueAsNumber,
+      speed: input("heicSpeed").valueAsNumber,
+      maxResolution: Number(input("videoMaxRes").value) || 0,
+      maxFps: Number(input("videoMaxFps").value) || 0,
+      audioMode: input("videoAudioMode").value,
+      tenBit: input("videoTenBit").checked,
+      filmGrain: input("videoFilmGrain").valueAsNumber,
+      skipAlreadyEfficient: input("videoSkipEfficient").checked,
+      customParams: input("videoCustomParams").value.trim()
+    };
+  }
+  return {
+    excludedFolders: [...state.excluded],
+    includedFolders: [...state.included],
+    excludedFiles: [...state.excludedFiles],
+    includedFiles: [...state.includedFiles],
+    extEnabled: { ...extEnabled },
+    minSizeBytes: Math.round(input("minsize").valueAsNumber * 1024 * 1024),
+    copyUndersized: input("copyUndersized").checked,
+    includeRaw: input("includeRaw").checked,
+    outputFormat: state.currentFormat,
+    qualities: [input("quality").valueAsNumber],
+    flattenGif: input("flattenGif").checked,
+    heicSpeed: input("heicSpeed").valueAsNumber
+  };
+};
 var budgetBytes = () => Math.max(1, Math.round(input("budget").valueAsNumber)) * 1024 ** 3;
 var save = async () => {
+  if (state.mediaMode === "video") {
+    await api("config", {
+      method: "POST",
+      body: {
+        customDestination: state.videoDestMode === "custom" ? input("destination").value.trim() : state.videoCustomDestination,
+        budgetBytes: budgetBytes(),
+        policy: policy()
+      }
+    });
+    return;
+  }
   const destination = input("destination").value.trim();
   await api("config", {
     method: "POST",
@@ -3284,11 +3380,17 @@ var chooseFormat = async (id) => {
     speed: input("heicSpeed").valueAsNumber
   };
   const oldDestination = input("destination").value;
-  const nextDestination = nextDestinationOnFormatChange(oldDestination, input("sourceRoot").value, oldSpec.destinationSuffix, newSpec.destinationSuffix, state.status?.caseInsensitive ?? true);
+  let nextDestination = oldDestination;
+  if (state.mediaMode !== "video") {
+    nextDestination = nextDestinationOnFormatChange(oldDestination, input("sourceRoot").value, oldSpec.destinationSuffix, newSpec.destinationSuffix, state.status?.caseInsensitive ?? true);
+  }
   formatUi.apply(id, true);
   if (nextDestination !== oldDestination) {
     input("destination").value = nextDestination;
     toast(`Destination updated to ${nextDestination}.`, "info");
+  }
+  if (state.mediaMode === "video") {
+    syncVideoDestUi();
   }
   try {
     await save();
@@ -3298,6 +3400,136 @@ var chooseFormat = async (id) => {
     input("destination").value = oldDestination;
     formatUi.apply(oldId, true);
     toast(formatError(error), "danger");
+  }
+};
+var syncVideoDestUi = () => {
+  if (state.mediaMode !== "video")
+    return;
+  const destMode = state.videoDestMode;
+  $("btnDestMerge").setAttribute("aria-pressed", String(destMode === "merge"));
+  $("btnDestSubfolder").setAttribute("aria-pressed", String(destMode === "subfolder"));
+  $("btnDestCustom").setAttribute("aria-pressed", String(destMode === "custom"));
+  const photoDest = state.status?.destination ?? input("destination").value.trim();
+  const sep = state.status?.pathSeparator ?? "\\";
+  const destInput = input("destination");
+  const pickBtn = $("btnPick");
+  if (destMode === "merge") {
+    destInput.value = photoDest;
+    destInput.readOnly = true;
+    pickBtn.disabled = true;
+    $("videoDestResolved").textContent = `Merging into photo tree: ${photoDest}${sep}<subfolder>${sep}<video>`;
+  } else if (destMode === "subfolder") {
+    const sub = `${photoDest.replace(/[\\/]+$/, "")}${sep}video`;
+    destInput.value = sub;
+    destInput.readOnly = true;
+    pickBtn.disabled = true;
+    $("videoDestResolved").textContent = `Writing inside subfolder: ${sub}${sep}<subfolder>${sep}<video>`;
+  } else {
+    destInput.readOnly = false;
+    pickBtn.disabled = false;
+    destInput.value = state.videoCustomDestination || `${input("sourceRoot").value.replace(/[\\/]+$/, "")}-${state.currentFormat}`;
+    $("videoDestResolved").textContent = `Writing to separate custom location: ${destInput.value}`;
+  }
+};
+var switchMediaMode = async (next) => {
+  if (state.running || state.starting || state.mediaMode === next)
+    return;
+  state.mediaMode = next;
+  const isVideo = next === "video";
+  $("app").setAttribute("data-media-mode", next);
+  $("btnModeImage").setAttribute("aria-pressed", String(!isVideo));
+  $("btnModeVideo").setAttribute("aria-pressed", String(isVideo));
+  $("videoPresetsWrap").classList.toggle("hidden", !isVideo);
+  $("imageIncludeOpts").classList.toggle("hidden", isVideo);
+  $("videoTinkerOpts").classList.toggle("hidden", !isVideo);
+  $("videoDestModes").classList.toggle("hidden", !isVideo);
+  if (isVideo) {
+    input("jobs").value = "1";
+    updateJobsReadout();
+    const vStatus = await api("video/status");
+    state.videoStatus = vStatus;
+    state.videoDestMode = vStatus.policy.destMode ?? "merge";
+    state.videoCustomDestination = vStatus.customDestination ?? "";
+    extEnabled = { ...vStatus.policy.extEnabled };
+    formatUi.init({
+      ...state.status,
+      formats: vStatus.formats,
+      outputFormat: vStatus.outputFormat,
+      policy: {
+        ...state.status?.policy,
+        outputFormat: vStatus.outputFormat,
+        qualities: [vStatus.policy.quality],
+        heicSpeed: vStatus.policy.speed
+      }
+    });
+    $("ffUpdate").classList.toggle("hidden", Boolean(vStatus.ffmpeg));
+    syncVideoDestUi();
+  } else {
+    input("destination").readOnly = false;
+    $("btnPick").disabled = false;
+    if (state.status) {
+      input("destination").value = state.status.destination;
+      extEnabled = { ...state.status.policy.extEnabled };
+      formatUi.init(state.status);
+    }
+    $("ffUpdate").classList.add("hidden");
+  }
+  renderExtToggles();
+  library.refresh();
+  await refreshPreview();
+};
+var applyVideoPreset = async (preset) => {
+  $("btnPresetArchival").setAttribute("aria-pressed", String(preset === "archival"));
+  $("btnPresetBalanced").setAttribute("aria-pressed", String(preset === "balanced"));
+  $("btnPresetSpaceSaver").setAttribute("aria-pressed", String(preset === "spacesaver"));
+  if (preset === "archival") {
+    input("quality").value = "72";
+    input("heicSpeed").value = "5";
+    input("videoMaxRes").value = "0";
+    input("videoMaxFps").value = "0";
+    input("videoAudioMode").value = "copy";
+  } else if (preset === "balanced") {
+    input("quality").value = "60";
+    input("heicSpeed").value = "6";
+    input("videoMaxRes").value = "0";
+    input("videoMaxFps").value = "0";
+    input("videoAudioMode").value = "auto";
+  } else {
+    input("quality").value = "44";
+    input("heicSpeed").value = "7";
+    input("videoMaxRes").value = "1080";
+    input("videoMaxFps").value = "30";
+    input("videoAudioMode").value = "opus64";
+  }
+  paintRange("quality");
+  paintRange("heicSpeed");
+  const spec = state.formatSpecs[state.currentFormat];
+  if (spec) {
+    $("qualityOut").textContent = formatUi.qualityText(spec, input("quality").valueAsNumber);
+    $("heicSpeedOut").textContent = String(input("heicSpeed").valueAsNumber);
+  }
+  await save();
+  await refreshPreview();
+};
+var setVideoDestMode = async (mode) => {
+  state.videoDestMode = mode;
+  syncVideoDestUi();
+  await save();
+  await refreshPreview();
+};
+var installFfmpeg = async () => {
+  try {
+    toast("Installing FFmpeg in the background…", "info");
+    $("ffUpdate").textContent = "Installing FFmpeg…";
+    await api("video/ffmpeg/install", { method: "POST", body: {} });
+    toast("FFmpeg installed successfully!", "success");
+    $("ffUpdate").classList.add("hidden");
+    const vStatus = await api("video/status");
+    state.videoStatus = vStatus;
+    formatUi.refreshCards();
+  } catch (err) {
+    toast(formatError(err), "danger");
+    $("ffUpdate").textContent = "Install FFmpeg";
   }
 };
 var renderExtToggles = () => {
@@ -3336,6 +3568,11 @@ var updateCpuLimitReadout = () => {
   $("cpuLimitOut").textContent = `${input("cpuLimit").value}%`;
   paintRange("cpuLimit");
 };
+var updateFilmGrainReadout = () => {
+  const val = input("videoFilmGrain").valueAsNumber;
+  $("videoFilmGrainOut").textContent = val === 0 ? "Off (0)" : `Level ${val}`;
+  paintRange("videoFilmGrain");
+};
 var paintRange = (id) => {
   const node = input(id);
   const min = Number(node.min) || 0;
@@ -3345,7 +3582,7 @@ var paintRange = (id) => {
   node.style.setProperty("--fill", `${clamp(percent, 0, 100).toFixed(2)}%`);
 };
 var paintRanges = () => {
-  for (const id of ["minsize", "jobs", "cpuLimit", "budget", "viewJobs", "viewCpuLimit"])
+  for (const id of ["minsize", "jobs", "cpuLimit", "budget", "viewJobs", "viewCpuLimit", "videoFilmGrain"])
     paintRange(id);
 };
 var runEstimate = async () => {
@@ -3940,8 +4177,18 @@ var boot = async () => {
     updateMinSizeReadout();
     updateJobsReadout();
     updateCpuLimitReadout();
+    updateFilmGrainReadout();
     paintRanges();
     updateStartOptions();
+    (async () => {
+      try {
+        const vStatus = await api("video/status");
+        state.videoStatus = vStatus;
+        if (!vStatus.ffmpeg) {
+          $("ffUpdate").classList.remove("hidden");
+        }
+      } catch {}
+    })();
     if (status.liveJobId) {
       await runLifecycle.attach(status.liveJobId, true);
     }
@@ -4108,6 +4355,26 @@ $("btnQuit").addEventListener("click", () => {
 });
 $("appUpdate").addEventListener("click", handleAppUpdateClick);
 $("imUpdate").addEventListener("click", () => void installMagick());
+$("ffUpdate").addEventListener("click", () => void installFfmpeg());
+$("btnModeImage").addEventListener("click", () => void switchMediaMode("image"));
+$("btnModeVideo").addEventListener("click", () => void switchMediaMode("video"));
+$("btnPresetArchival").addEventListener("click", () => void applyVideoPreset("archival"));
+$("btnPresetBalanced").addEventListener("click", () => void applyVideoPreset("balanced"));
+$("btnPresetSpaceSaver").addEventListener("click", () => void applyVideoPreset("spacesaver"));
+$("btnDestMerge").addEventListener("click", () => void setVideoDestMode("merge"));
+$("btnDestSubfolder").addEventListener("click", () => void setVideoDestMode("subfolder"));
+$("btnDestCustom").addEventListener("click", () => void setVideoDestMode("custom"));
+input("videoContainer").addEventListener("change", () => schedulePreview());
+input("videoMaxRes").addEventListener("change", () => schedulePreview());
+input("videoMaxFps").addEventListener("change", () => schedulePreview());
+input("videoAudioMode").addEventListener("change", () => schedulePreview());
+input("videoFilmGrain").addEventListener("input", () => {
+  updateFilmGrainReadout();
+  schedulePreview();
+});
+input("videoTenBit").addEventListener("change", () => schedulePreview());
+input("videoSkipEfficient").addEventListener("change", () => schedulePreview());
+input("videoCustomParams").addEventListener("input", debounce(() => schedulePreview(), 400));
 $("btnOverflow").addEventListener("click", (event) => {
   event.stopPropagation();
   toggleOverflow();

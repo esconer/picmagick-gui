@@ -94,6 +94,11 @@ export type AppState = {
 
   themeChoice: string;
   booted: boolean;
+
+  mediaMode: "image" | "video";
+  videoDestMode: "merge" | "subfolder" | "custom";
+  videoCustomDestination: string;
+  videoStatus: any;
 };
 
 const emptyRun = (): RunState => ({
@@ -162,6 +167,11 @@ export const state: AppState = {
 
   themeChoice: "auto",
   booted: false,
+
+  mediaMode: "image",
+  videoDestMode: "merge",
+  videoCustomDestination: "",
+  videoStatus: null,
 };
 
 export const resetRun = (total: number): void => {

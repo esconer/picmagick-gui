@@ -48,7 +48,13 @@ export function createLibrary(opts: LibraryOptions): LibraryController {
   const fold = (value: string): string =>
     (state.status?.caseInsensitive ?? true) ? value.toLowerCase() : value;
 
-  const allFiles = (): ScannedFile[] => (state.tree ? flatten(state.tree) : []);
+  const allFiles = (): ScannedFile[] => {
+    if (!state.tree) return [];
+    const list = flatten(state.tree);
+    return state.mediaMode === "video"
+      ? list.filter((f) => f.category === "video")
+      : list;
+  };
 
   const selected = (): ScannedFile[] => {
     if (!state.tree) return [];
@@ -82,9 +88,12 @@ export function createLibrary(opts: LibraryOptions): LibraryController {
   };
 
   const visibleFiles = (files: ScannedFile[], query: string, ancestorMatched: boolean): ScannedFile[] => {
+    const modeFiltered = state.mediaMode === "video"
+      ? files.filter((file) => file.category === "video")
+      : files;
     const list = !query || ancestorMatched
-      ? files
-      : files.filter((file) => file.rel.toLowerCase().includes(query));
+      ? modeFiltered
+      : modeFiltered.filter((file) => file.rel.toLowerCase().includes(query));
     return [...list].sort(byName);
   };
 
@@ -277,30 +286,39 @@ export function createLibrary(opts: LibraryOptions): LibraryController {
     name.title = node.rel;
     if (hasKids) name.setAttribute("aria-expanded", isOpen ? "true" : "false");
 
+    const isVideoMode = state.mediaMode === "video";
+    const folderCount = isVideoMode ? node.videoCount : node.count;
+    const folderBytes = isVideoMode ? node.videoBytes : node.bytes;
+
     const count = document.createElement("span");
     count.className = "tree-count";
-    count.textContent = node.count.toLocaleString();
-    count.title = `${node.count.toLocaleString()} files in this folder and below`;
+    count.textContent = folderCount.toLocaleString();
+    count.title = `${folderCount.toLocaleString()} ${isVideoMode ? "videos" : "files"} in this folder and below`;
 
     const size = document.createElement("span");
     size.className = "tree-size";
-    size.textContent = fmt(node.bytes);
+    size.textContent = fmt(folderBytes);
 
     row.append(check, caret, folder, name);
-    if (node.count > 0) row.append(count);
+    if (folderCount > 0) row.append(count);
     row.append(size);
 
-    if (node.rawBytes > 0) {
+    if (!isVideoMode && node.rawBytes > 0) {
       const badge = document.createElement("span");
       badge.className = "tree-badge raw";
       badge.textContent = `RAW ${fmt(node.rawBytes)}`;
       row.append(badge);
     }
-    if (node.imageCount + node.rawCount === 0) {
+    const nothingConvertible = isVideoMode
+      ? node.videoCount === 0
+      : node.imageCount + node.rawCount === 0;
+    if (nothingConvertible) {
       const badge = document.createElement("span");
       badge.className = "tree-badge dead";
-      badge.textContent = "nothing convertible";
-      badge.title = `${node.otherCount} other files, ${fmt(node.otherBytes)} (junk, video or cache)`;
+      badge.textContent = isVideoMode ? "no videos" : "nothing convertible";
+      badge.title = isVideoMode
+        ? "No video files found in this folder or its subfolders."
+        : `${node.otherCount} other files, ${fmt(node.otherBytes)} (junk, video or cache)`;
       row.append(badge);
     }
 

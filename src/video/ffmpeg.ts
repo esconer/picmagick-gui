@@ -224,6 +224,7 @@ export function findFfmpeg(forceRefresh = false): FfmpegInfo {
 }
 
 export type FfmpegInstallProgress = {
+  running: boolean;
   stage: "idle" | "downloading" | "extracting" | "done" | "error";
   percent: number;
   downloadedBytes: number;
@@ -232,7 +233,7 @@ export type FfmpegInstallProgress = {
   error?: string;
 };
 
-const installState: FfmpegInstallProgress = {
+const installState: Omit<FfmpegInstallProgress, "running"> = {
   stage: "idle",
   percent: 0,
   downloadedBytes: 0,
@@ -241,7 +242,10 @@ const installState: FfmpegInstallProgress = {
 };
 
 export function getFfmpegInstallProgress(): FfmpegInstallProgress {
-  return { ...installState };
+  return {
+    ...installState,
+    running: installState.stage === "downloading" || installState.stage === "extracting",
+  };
 }
 
 export async function installLatestFfmpeg(): Promise<{ ok: boolean; path: string }> {

@@ -70,7 +70,11 @@
         <span class="brand-version" id="versionLabel">v1.2.1</span>
       </div>
     </div>
-    <div class="identity-center">
+    <div class="identity-center" style="gap: 10px;">
+      <div class="segmented" id="modeSwitch" role="group" aria-label="Media mode">
+        <button id="btnModeImage" type="button" aria-pressed="true">Photos</button>
+        <button id="btnModeVideo" type="button" aria-pressed="false">Videos</button>
+      </div>
       <button class="library-pill" id="libraryPill" title="Source folder">
         <svg width="14" height="14" aria-hidden="true"><use href="#i-folder"></use></svg>
         <span id="libraryName">No library</span>
@@ -84,6 +88,7 @@
       <span class="free-chip" id="freeChip" title="Free space on the destination volume"></span>
       <button id="appUpdate" class="update-pill hidden" type="button"></button>
       <button id="imUpdate" class="update-pill hidden" type="button"></button>
+      <button id="ffUpdate" class="update-pill warn hidden" type="button">Install FFmpeg</button>
       <button id="btnHealth" class="btn ghost sm" type="button" title="System health">
         <svg width="15" height="15" aria-hidden="true"><use href="#i-health"></use></svg>
         <span>Health</span>
@@ -238,6 +243,17 @@
             <button id="btnQualityReset" class="btn link sm push" type="button">Reset</button>
           </div>
 
+          <div id="videoPresetsWrap" class="field hidden">
+            <div class="field-head">
+              <label class="field-label">Quick preset</label>
+            </div>
+            <div class="segmented" role="group" aria-label="Video preset">
+              <button id="btnPresetArchival" type="button" aria-pressed="false">Archival</button>
+              <button id="btnPresetBalanced" type="button" aria-pressed="true">Optimal</button>
+              <button id="btnPresetSpaceSaver" type="button" aria-pressed="false">Space Saver</button>
+            </div>
+          </div>
+
           <div class="field">
             <div class="field-head">
               <label for="quality" id="qualityLabelText">Quality</label>
@@ -293,20 +309,89 @@
             <div id="extToggles" class="ext-grid"></div>
           </div>
 
-          <label class="check">
-            <input id="includeRaw" type="checkbox">
-            <span>Include RAW files <b id="rawBytes" class="check-meta"></b></span>
-          </label>
-          <label class="check">
-            <input id="flattenGif" type="checkbox">
-            <span>Flatten animated GIFs to the first frame</span>
-          </label>
+          <div id="imageIncludeOpts">
+            <label class="check">
+              <input id="includeRaw" type="checkbox">
+              <span>Include RAW files <b id="rawBytes" class="check-meta"></b></span>
+            </label>
+            <label class="check">
+              <input id="flattenGif" type="checkbox">
+              <span>Flatten animated GIFs to the first frame</span>
+            </label>
+          </div>
+
+          <div id="videoTinkerOpts" class="hidden">
+            <div class="field">
+              <div class="field-head"><label for="videoContainer">Container</label></div>
+              <select id="videoContainer">
+                <option value="mp4">MP4 (.mp4) — Universal / Apple / Web</option>
+                <option value="mkv">Matroska (.mkv) — Tinkerer / Multi-track</option>
+                <option value="webm">WebM (.webm) — VP9 only</option>
+              </select>
+            </div>
+            <div class="field">
+              <div class="field-head"><label for="videoMaxRes">Max resolution</label></div>
+              <select id="videoMaxRes">
+                <option value="0">Keep original resolution (Default)</option>
+                <option value="2160">Cap at 4K (2160p)</option>
+                <option value="1440">Cap at 1440p (2K)</option>
+                <option value="1080">Cap at 1080p (Full HD)</option>
+                <option value="720">Cap at 720p (HD)</option>
+              </select>
+            </div>
+            <div class="field">
+              <div class="field-head"><label for="videoMaxFps">Frame rate cap</label></div>
+              <select id="videoMaxFps">
+                <option value="0">Keep original frame rate (Default)</option>
+                <option value="60">Cap at 60 fps</option>
+                <option value="30">Cap at 30 fps</option>
+              </select>
+            </div>
+            <div class="field">
+              <div class="field-head"><label for="videoAudioMode">Audio stream</label></div>
+              <select id="videoAudioMode">
+                <option value="auto">Smart Auto (Copy AAC/Opus, convert raw PCM)</option>
+                <option value="copy">Copy original audio untouched</option>
+                <option value="opus128">Convert to Opus 128 kbps (High quality)</option>
+                <option value="opus64">Convert to Opus 64 kbps (Space saver)</option>
+                <option value="mute">Strip audio track (Mute)</option>
+              </select>
+            </div>
+            <div class="field" id="videoGrainField">
+              <div class="field-head">
+                <label for="videoFilmGrain">AV1 film grain synthesis</label>
+                <output id="videoFilmGrainOut" class="value-out" for="videoFilmGrain">Off (0)</output>
+              </div>
+              <input id="videoFilmGrain" type="range" min="0" max="24" step="2" value="0">
+              <p class="note">Denoises sensor grain and synthesizes it on decode (saves 15–25% bitrate on noisy clips).</p>
+            </div>
+            <label class="check">
+              <input id="videoTenBit" type="checkbox" checked>
+              <span>10-bit color depth (yuv420p10le) <span class="check-meta">prevents banding</span></span>
+            </label>
+            <label class="check">
+              <input id="videoSkipEfficient" type="checkbox" checked>
+              <span>Copy videos already in target codec or larger after encode</span>
+            </label>
+            <div class="field">
+              <div class="field-head"><label for="videoCustomParams">Custom encoder params</label></div>
+              <input id="videoCustomParams" type="text" class="mono" spellcheck="false" placeholder="e.g. enable-qm=1:qm-min=0">
+            </div>
+          </div>
         </section>
 
         <section class="group" aria-labelledby="groupDestination">
           <div class="group-head">
             <span class="group-num" aria-hidden="true">4</span>
             <h3 id="groupDestination">Destination</h3>
+          </div>
+          <div id="videoDestModes" class="field hidden" style="margin-bottom: 10px;">
+            <div class="segmented" role="group" aria-label="Video destination mode">
+              <button id="btnDestMerge" type="button" aria-pressed="true" title="Merge videos into the exact same shadow folders as your compressed photos">Shadow Merge</button>
+              <button id="btnDestSubfolder" type="button" aria-pressed="false" title="Mirror folder structure inside a /video subfolder of the photo destination">/video Subfolder</button>
+              <button id="btnDestCustom" type="button" aria-pressed="false" title="Write videos to a completely separate folder away from photos">Custom Path</button>
+            </div>
+            <p id="videoDestResolved" class="note mono"></p>
           </div>
           <label for="destination" class="visually-hidden">Output folder</label>
           <div class="path-row">

@@ -42,6 +42,12 @@ import {
 } from "./app-update.ts";
 import { CASE_INSENSITIVE, IS_LINUX, IS_WINDOWS, pathKey, REL_SEP } from "./platform.ts";
 import { PREVIEW_CACHE_DIR, PUBLIC_DIR } from "./appdirs.ts";
+import {
+  handleVideoApi,
+  isVideoJobActive,
+  resetVideoScanState,
+  type SharedServerBridge,
+} from "./video/routes.ts";
 
 // Resolved by startServer(). A source run keeps the project layout; the
 // desktop entrypoint passes the packaged resources and the writable cache.
@@ -106,6 +112,16 @@ const state: State = {
   dates: null,
   sync: null,
   redundantRoots: [],
+};
+
+const videoBridge: SharedServerBridge = {
+  getSourceRoot: () => state.sourceRoot,
+  getPhotoDestination: () => state.destination,
+  getBudgetBytes: () => state.budgetBytes,
+  setBudgetBytes: (b: number) => { state.budgetBytes = b; },
+  getScan: () => state.scan,
+  getFileByRel: (rel: string) => state.index.get(rel),
+  getPreviewCacheDir: () => previewCacheDir,
 };
 
 function requireMagick(): MagickInfo {
@@ -205,6 +221,15 @@ async function readBody<T>(req: Request): Promise<T> {
 async function handleApi(pathname: string, req: Request, url: URL): Promise<Response> {
   const route = pathname.replace(/^\/api\/?/, "");
 
+  if (route === "video" || route.startsWith("video/")) {
+    try {
+      return await handleVideoApi(route.slice("video".length).replace(/^\/+/, ""), req, url, videoBridge);
+    } catch (err) {
+      const status = (err as { status?: number })?.status ?? 500;
+      return json({ error: (err as Error).message }, status);
+    }
+  }
+
   // ---- status / config ----
   if (route === "status" && req.method === "GET") {
     const free = await freeSpace(state.destination);
@@ -272,6 +297,7 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
       state.lastPreview = null;
       state.lastEstimate = null;
       state.ratios = defaultRatios();
+      resetVideoScanState();
     }
 
     return json({
@@ -460,6 +486,9 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
     }
     if (installProgress().running) {
       throw new HttpError(409, "An ImageMagick download is in progress. Wait for it to finish before closing the server.");
+    }
+    if (isVideoJobActive()) {
+      throw new HttpError(409, "A video job or FFmpeg download is active. Wait for it to finish or cancel it before closing the server.");
     }
 
     // Let this response reach the browser, then stop the listener and exit.
@@ -681,6 +710,12 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
         live.state === "paused"
           ? "A conversion is paused. Resume or cancel it before starting another."
           : "A conversion is already running.",
+      );
+    }
+    if (isVideoJobActive()) {
+      throw new HttpError(
+        409,
+        "A video conversion is currently active. Pause or cancel it before starting a photo conversion.",
       );
     }
     const magick = requireMagick();
