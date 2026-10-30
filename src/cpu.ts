@@ -5,6 +5,7 @@
  * percentage (default 70%, adjustable 10% - 100%) mid-run.
  */
 import os from "node:os";
+import { spawn } from "node:child_process";
 import { dlopen, FFIType } from "bun:ffi";
 
 export function getTotalCpus(): number {
@@ -37,7 +38,15 @@ type Kernel32 = {
   };
 };
 
+type Ntdll = {
+  symbols: {
+    NtSuspendProcess: (hProcess: any) => number;
+    NtResumeProcess: (hProcess: any) => number;
+  };
+};
+
 let k32: Kernel32 | null = null;
+let ntdll: Ntdll | null = null;
 
 if (process.platform === "win32") {
   try {
@@ -55,13 +64,85 @@ if (process.platform === "win32") {
         returns: FFIType.bool,
       },
     }) as unknown as Kernel32;
+
+    ntdll = dlopen("ntdll.dll", {
+      NtSuspendProcess: {
+        args: [FFIType.ptr],
+        returns: FFIType.i32,
+      },
+      NtResumeProcess: {
+        args: [FFIType.ptr],
+        returns: FFIType.i32,
+      },
+    }) as unknown as Ntdll;
   } catch {
     k32 = null;
+    ntdll = null;
   }
 }
 
 // PROCESS_ALL_ACCESS = 0x1F0FFF (or PROCESS_SET_INFORMATION | PROCESS_QUERY_INFORMATION)
 const PROCESS_AFFINITY_ACCESS = 0x1F0FFF;
+// PROCESS_SUSPEND_RESUME = 0x0800
+const PROCESS_SUSPEND_RESUME = 0x0800;
+
+/**
+ * Freezes a running process in memory in <1ms without killing it.
+ * Uses NtSuspendProcess on Windows and SIGSTOP on Linux.
+ */
+export function suspendProcess(pid: number | undefined): boolean {
+  if (!pid || pid <= 0) return false;
+  if (process.platform === "linux") {
+    try {
+      process.kill(pid, "SIGSTOP");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  if (k32 && ntdll) {
+    try {
+      const handle = k32.symbols.OpenProcess(PROCESS_SUSPEND_RESUME, false, pid);
+      if (handle) {
+        const status = ntdll.symbols.NtSuspendProcess(handle);
+        k32.symbols.CloseHandle(handle);
+        return status === 0;
+      }
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+/**
+ * Resumes a suspended process from the exact frame/state it was frozen.
+ * Uses NtResumeProcess on Windows and SIGCONT on Linux.
+ */
+export function resumeProcess(pid: number | undefined): boolean {
+  if (!pid || pid <= 0) return false;
+  if (process.platform === "linux") {
+    try {
+      process.kill(pid, "SIGCONT");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  if (k32 && ntdll) {
+    try {
+      const handle = k32.symbols.OpenProcess(PROCESS_SUSPEND_RESUME, false, pid);
+      if (handle) {
+        const status = ntdll.symbols.NtResumeProcess(handle);
+        k32.symbols.CloseHandle(handle);
+        return status === 0;
+      }
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
 
 /**
  * Applies CPU affinity and background process priority to a running process.
@@ -81,6 +162,17 @@ export function applyProcessCpuLimit(pid: number | undefined, percent: number): 
       }
     } catch {
       // Fallback silently if OS denies affinity change
+    }
+  }
+
+  if (process.platform === "linux") {
+    try {
+      const total = getTotalCpus();
+      const allowed = Math.max(1, Math.min(total, Math.floor(total * (percent / 100))));
+      spawn("taskset", ["-pc", `0-${allowed - 1}`, String(pid)], { stdio: "ignore" }).unref();
+      success = true;
+    } catch {
+      // Fallback silently if taskset is not installed
     }
   }
 

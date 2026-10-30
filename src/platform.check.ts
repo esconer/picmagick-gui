@@ -26,7 +26,7 @@ import {
   pickAppImageAsset, pickPortableAsset,
 } from "./imagemagick.ts";
 import { pickLeanAppAsset } from "./app-update.ts";
-import { calculateAffinityMask, applyProcessCpuLimit } from "./cpu.ts";
+import { calculateAffinityMask, applyProcessCpuLimit, suspendProcess, resumeProcess } from "./cpu.ts";
 import { spawn } from "node:child_process";
 import * as tree from "../src/client/tree-logic.ts";
 
@@ -427,6 +427,19 @@ await check("applies CPU limit dynamically to process", () => {
   if (process.platform === "win32") {
     assert.equal(ok1, true);
     assert.equal(ok2, true);
+  }
+  child.kill();
+});
+
+await check("suspends and resumes process dynamically", () => {
+  const child = spawn(process.platform === "win32" ? "cmd.exe" : "sleep", [process.platform === "win32" ? "/c timeout 2" : "2"]);
+  const sOk = suspendProcess(child.pid);
+  const rOk = resumeProcess(child.pid);
+  assert.equal(typeof sOk, "boolean");
+  assert.equal(typeof rOk, "boolean");
+  if (process.platform === "win32") {
+    assert.equal(sOk, true);
+    assert.equal(rOk, true);
   }
   child.kill();
 });

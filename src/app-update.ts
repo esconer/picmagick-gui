@@ -10,7 +10,7 @@
  *   into persistent user storage before launching the installer.
  */
 import { execFileSync, spawn } from "node:child_process";
-import { chmodSync, cpSync, createWriteStream, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 
@@ -299,7 +299,7 @@ export async function downloadAppUpdate(): Promise<void> {
       const total = Number(res.headers.get("content-length")) || picked.size;
       state.totalBytes = total;
 
-      const fileStream = createWriteStream(archivePath);
+      const sink = Bun.file(archivePath).writer();
       const reader = res.body.getReader();
       let received = 0;
 
@@ -308,12 +308,12 @@ export async function downloadAppUpdate(): Promise<void> {
         if (done) break;
         if (value) {
           received += value.byteLength;
-          fileStream.write(Buffer.from(value));
+          await sink.write(value);
           state.downloadedBytes = received;
           state.percent = total > 0 ? Math.min(99, Math.round((received / total) * 100)) : 50;
         }
       }
-      fileStream.end();
+      await sink.end();
 
       state.percent = 100;
       state.message = "Extracting installer package…";

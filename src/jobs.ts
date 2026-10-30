@@ -107,6 +107,7 @@ export class Job extends EventEmitter {
    */
   private liveCpuLimit = 70;
   private activePids = new Set<number>();
+  private elapsedBeforePauseMs = 0;
   private getCpuLimit = () => this.liveCpuLimit;
 
   setCpuLimit(n: number) {
@@ -122,7 +123,7 @@ export class Job extends EventEmitter {
   }
 
   private emitProgress(file?: FileResult, starting?: { rel: string; bytes: number }) {
-    const elapsed = (Date.now() - this.started) / 1000;
+    const elapsed = (this.elapsedBeforePauseMs + (Date.now() - this.started)) / 1000;
     // Average service time across finished files, scaled by remaining work.
     const avg = this.done > 0 ? elapsed / this.done : 0;
     const remaining = Math.max(0, this.total - this.done);
@@ -238,13 +239,16 @@ private total = 0;
       failed: this.totals.failed,
       bytes,
       remaining: this.total - this.done,
-      elapsedSeconds: Math.round((Date.now() - this.started) / 1000),
+      elapsedSeconds: Math.round((this.elapsedBeforePauseMs + (Date.now() - this.started)) / 1000),
       note,
     };
   }
 
   private async execute(decisions: Decision[], resuming: boolean) {
     this.state = "running";
+    if (!resuming) {
+      this.elapsedBeforePauseMs = 0;
+    }
     this.started = Date.now();
     this.controller = new AbortController();
     const o = this.opts!;
@@ -293,6 +297,7 @@ private total = 0;
 
       // A pause is not a finished run, so no manifest is written yet.
       if (this.pauseRequested) {
+        this.elapsedBeforePauseMs += Date.now() - this.started;
         this.state = "paused";
         this.results = [...this.results, ...result.results];
         this.emit("progress", {

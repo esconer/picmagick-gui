@@ -124,6 +124,8 @@ export async function analyseSync(
       if (e.isDirectory()) { await walk(full); continue; }
       if (!e.isFile()) continue;
       if (e.name.startsWith(".picmagic-manifest-")) continue;
+      // In merge mode, video files sharing the photo destination tree are not photo orphans
+      if (/\.(mp4|mkv|webm|mov|m4v|avi)$/i.test(e.name)) continue;
       if (expected.has(pathKey(path.resolve(full)))) continue;
       try {
         const st = await stat(full);

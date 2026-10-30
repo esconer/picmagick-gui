@@ -3,7 +3,7 @@
  * tree. Everything downstream (policy, preview, dedupe, budget) reads that
  * cache, so moving a slider never re-touches the disk.
  */
-import { readdir } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { CONVERT_EXTS, RAW_EXTS, VIDEO_EXTS, JUNK_EXTS, extOf } from "./paths.ts";
 
@@ -175,7 +175,7 @@ export async function scanLibrary(
       const ext = extOf(name);
       let st;
       try {
-        st = await (await import("node:fs/promises")).stat(childAbs);
+        st = await stat(childAbs);
       } catch {
         continue; // vanished mid-scan; harmless
       }

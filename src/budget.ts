@@ -68,18 +68,9 @@ export function planBudget(preview: Preview, budgetBytes: number): BudgetPlan {
   }
 
   // Add suggestions: folders present in the scan but excluded from this run.
-  const included = new Set(preview.byFolder.map((f) => f.rel));
+  // Note: preview.byFolder only includes active folders. If excluded folders are
+  // passed into planBudget in the future, candidate suggestions can be computed here.
   const addSuggestions: BudgetPlan["addSuggestions"] = [];
-  for (const f of perFolder) {
-    if (included.has(f.rel)) continue;
-    if (total + f.estOutputBytes <= budgetBytes) {
-      addSuggestions.push({
-        rel: f.rel,
-        estOutputBytes: f.estOutputBytes,
-        estAfterAdd: total + f.estOutputBytes,
-      });
-    }
-  }
 
   return {
     budgetBytes,
