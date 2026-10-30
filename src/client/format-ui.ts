@@ -238,6 +238,10 @@ export function createFormatUi(options: FormatUiOptions): FormatUi {
     };
   });
 
+  input("heicSpeed").addEventListener("change", () => {
+    options.onPreview();
+  });
+
   $("btnQualityReset").addEventListener("click", () => {
     const spec = state.formatSpecs[state.currentFormat];
     if (!spec) return;

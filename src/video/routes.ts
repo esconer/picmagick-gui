@@ -454,7 +454,7 @@ export async function handleVideoApi(
     const scan = bridge.getScan();
     if (!scan) throw Object.assign(new Error("Scan the library first."), { status: 400 });
 
-    const body = await readBody<{ rel: string; qualities?: number[]; format?: string }>(req);
+    const body = await readBody<{ rel: string; qualities?: number[]; format?: string; timestampSec?: number }>(req);
     const file = bridge.getFileByRel(body.rel);
     if (!file) throw Object.assign(new Error(`Not in scan: ${body.rel}`), { status: 404 });
 
@@ -473,13 +473,18 @@ export async function handleVideoApi(
 
     const facts = await probeVideo(ff.ffprobePath, file.abs, file.mtime, file.size);
     const dur = facts.durationSec && facts.durationSec > 0 ? facts.durationSec : 6;
-    const sampleTs = dur > 2 ? Number((dur * 0.25).toFixed(2)) : 0;
     const sliceDur = Math.min(1.5, dur);
+    const sampleTs =
+      typeof body.timestampSec === "number" && Number.isFinite(body.timestampSec)
+        ? Math.max(0, Math.min(body.timestampSec, Math.max(0, dur - sliceDur)))
+        : dur > 2
+          ? Number((dur * 0.25).toFixed(2))
+          : 0;
 
     const outDir = bridge.getPreviewCacheDir();
     await ensureDir(outDir);
 
-    const fileHash = hashRel(`${file.rel}:${file.mtime}`);
+    const fileHash = hashRel(`${file.rel}:${file.mtime}:ts${sampleTs.toFixed(2)}`);
     const origPngName = `vcmp-orig-${fileHash}.png`;
     const origPngPath = path.join(outDir, origPngName);
     await extractVideoFramePng(ff.ffmpegPath, file.abs, sampleTs, origPngPath);

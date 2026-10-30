@@ -488,6 +488,9 @@ function createFormatUi(options) {
       speed: value
     };
   });
+  input("heicSpeed").addEventListener("change", () => {
+    options.onPreview();
+  });
   $("btnQualityReset").addEventListener("click", () => {
     const spec = state.formatSpecs[state.currentFormat];
     if (!spec)
