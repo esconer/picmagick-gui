@@ -176,12 +176,16 @@ const budgetBytes = (): number =>
 
 const save = async (): Promise<void> => {
   if (state.mediaMode === "video") {
+    if (state.videoDestMode === "custom") {
+      const val = input("destination").value.trim();
+      if (val) state.videoCustomDestination = val;
+    }
     await api<any>("config", {
       method: "POST",
       body: {
         customDestination:
           state.videoDestMode === "custom"
-            ? input("destination").value.trim()
+            ? (state.videoCustomDestination || input("destination").value.trim())
             : state.videoCustomDestination,
         budgetBytes: budgetBytes(),
         policy: policy(),
@@ -219,7 +223,13 @@ const refreshPreview = async (): Promise<void> => {
     await save();
     const preview = await api<PreviewResponse>("preview", {
       method: "POST",
-      body: { policy: policy() },
+      body: {
+        policy: policy(),
+        customDestination:
+          state.mediaMode === "video" && state.videoDestMode === "custom"
+            ? (state.videoCustomDestination || input("destination").value.trim())
+            : undefined,
+      },
     });
     if (seq !== previewSeq) return;
     state.preview = preview;
@@ -505,10 +515,18 @@ const applyDestination = async (previous: string): Promise<void> => {
   }
   clearDestError();
   try {
+    if (state.mediaMode === "video") {
+      state.videoCustomDestination = destination;
+      syncVideoDestUi();
+    }
     await save();
     await refreshPreview();
   } catch (error) {
     input("destination").value = previous;
+    if (state.mediaMode === "video") {
+      state.videoCustomDestination = previous;
+      syncVideoDestUi();
+    }
     showDestError(formatError(error));
     toast(formatError(error), "danger");
   }
@@ -527,6 +545,10 @@ const pickFolder = async (kind: "source" | "destination"): Promise<void> => {
     } else {
       const previous = input("destination").value;
       input("destination").value = result.path;
+      if (state.mediaMode === "video") {
+        state.videoCustomDestination = result.path;
+        syncVideoDestUi();
+      }
       await applyDestination(previous);
     }
   } catch (error) {
@@ -618,9 +640,13 @@ const syncVideoDestUi = (): void => {
   } else {
     destInput.readOnly = false;
     pickBtn.disabled = false;
+    if (!state.videoCustomDestination && destInput.value.trim()) {
+      state.videoCustomDestination = destInput.value.trim();
+    }
     destInput.value =
       state.videoCustomDestination ||
       `${input("sourceRoot").value.replace(/[\\/]+$/, "")}-${state.currentFormat}`;
+    state.videoCustomDestination = destInput.value;
     $("videoDestResolved").textContent = `Writing to separate custom location: ${destInput.value}`;
   }
 };
@@ -1684,9 +1710,21 @@ input("destination").addEventListener("keydown", (event) => {
     input("destination").blur();
   }
 });
+input("destination").addEventListener("input", () => {
+  if (state.mediaMode === "video" && state.videoDestMode === "custom") {
+    const val = input("destination").value.trim();
+    state.videoCustomDestination = val;
+    $("videoDestResolved").textContent = `Writing to separate custom location: ${val || "…"}`;
+    schedulePreview();
+  }
+});
 input("destination").addEventListener("change", () => {
   const previous = destinationBefore || input("destination").value;
   destinationBefore = input("destination").value;
+  if (state.mediaMode === "video" && state.videoDestMode === "custom") {
+    state.videoCustomDestination = input("destination").value.trim();
+    syncVideoDestUi();
+  }
   if (input("destination").value.trim() !== previous.trim()) {
     void applyDestination(previous);
   }

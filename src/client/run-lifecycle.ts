@@ -296,6 +296,10 @@ export function createRunLifecycle(options: RunLifecycleOptions): RunLifecycle {
           overwrite: Boolean(overwrite?.checked),
           onlyNew: Boolean(runOptions.onlyNew ?? onlyNew?.checked),
           policy: options.policy(),
+          customDestination:
+            state.mediaMode === "video" && state.videoDestMode === "custom"
+              ? ((document.getElementById("destination") as HTMLInputElement | null)?.value.trim() || state.videoCustomDestination)
+              : undefined,
         },
       });
       resetRun(response.total);

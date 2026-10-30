@@ -7,7 +7,6 @@
 :root {
   /* Upgraded rhythm & generous whitespace */
   --h-identity: 60px;
-  --h-rail: 48px;
   --h-pane-head: 50px;
   --h-pane-foot: 40px;
 
@@ -163,51 +162,6 @@ body {
   box-shadow: var(--specular-inset), 0 6px 18px color-mix(in srgb, var(--action-primary) 14%, transparent);
 }
 
-/* Modern Floating Pill Stepper (replaces heavy polygon chevrons) */
-.rail {
-  gap: 8px;
-  padding: 6px var(--sp-6);
-  background: transparent;
-  border-bottom: 0;
-}
-
-.rail-step,
-.rail-step:first-child {
-  clip-path: none;
-  margin-left: 0 !important;
-  min-width: 136px;
-  height: 36px;
-  padding: 0 14px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--surface-pane) 65%, transparent);
-  transition: all 220ms var(--ease-spring);
-}
-
-.rail-step:hover {
-  background: color-mix(in srgb, var(--surface-raised) 88%, transparent);
-  border-color: var(--border-default);
-  transform: translateY(-1px);
-}
-
-.rail-step[data-state="current"] {
-  background: var(--card-surface);
-  border-color: color-mix(in srgb, var(--action-primary) 45%, var(--border-default));
-  box-shadow:
-    var(--specular-inset),
-    0 6px 20px -4px color-mix(in srgb, var(--action-primary) 22%, transparent);
-}
-
-.rail-step[data-state="current"]::after {
-  display: none;
-}
-
-.rail-step[data-state="current"] .rail-icon {
-  background: var(--accent-gradient);
-  border-color: transparent;
-  color: var(--action-on-primary);
-  box-shadow: 0 0 10px color-mix(in srgb, var(--action-primary) 45%, transparent);
-}
 
 /* ── 4. Generous Whitespace & Specular Cockpit Panes ───────────────────── */
 .workspace {
@@ -471,10 +425,6 @@ body {
 }
 
 .format-card,
-.stat.tile,
-.warning-card,
-.folder-row,
-.ladder-card,
 .health-check {
   animation: item-reveal var(--duration-enter) var(--ease-spring) both;
   animation-delay: calc(var(--stagger-i, 0) * 38ms);

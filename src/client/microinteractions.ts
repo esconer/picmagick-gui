@@ -5,17 +5,14 @@
  * 3. Responsive narrow-viewport pane switching synced with the Context Rail.
  */
 
+import { state } from "./state";
+
 const SPOTLIGHT_SELECTOR =
   ".format-card, .stat.tile, .preflight-tile, .plan-hero";
 
 const STAGGER_CONTAINERS = [
   "#formatCards",
   "#moreFormats",
-  ".stat-row",
-  ".preflight",
-  "#planWarnings",
-  "#folderSplit",
-  "#compareLadder",
   "#healthBody",
 ];
 
@@ -58,6 +55,7 @@ export function initMicrointeractions(): void {
       : null;
 
   const applyStaggerAndReveal = (): void => {
+    if (state.running || state.starting) return;
     for (const selector of STAGGER_CONTAINERS) {
       const container = document.querySelector<HTMLElement>(selector);
       if (!container) continue;
@@ -69,7 +67,7 @@ export function initMicrointeractions(): void {
 
     if (scrollObserver) {
       const scrollItems = document.querySelectorAll<HTMLElement>(
-        ".group, .folder-row, .activity-row:not(.is-visible)",
+        ".group:not(.reveal-on-scroll), .activity-row:not(.reveal-on-scroll)",
       );
       scrollItems.forEach((el) => {
         if (!el.classList.contains("is-visible")) {
@@ -82,11 +80,12 @@ export function initMicrointeractions(): void {
 
   applyStaggerAndReveal();
 
-  // Re-apply stagger indices whenever dynamic lists (format cards, folder split, warnings) re-render
+  // Re-apply stagger indices whenever dynamic lists re-render
   const workspace = document.getElementById("workspace");
   if (workspace && "MutationObserver" in window) {
     let rafId = 0;
     const mo = new MutationObserver(() => {
+      if (state.running || state.starting) return;
       if (rafId) return;
       rafId = window.requestAnimationFrame(() => {
         rafId = 0;

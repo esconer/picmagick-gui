@@ -4,7 +4,6 @@
    ========================================================================== */
 
 :root {
-  --h-rail: 46px;
   --specular-top: inset 0 1px 0 0 color-mix(in srgb, var(--text-primary) 7%, transparent);
   --card-gradient: linear-gradient(
     180deg,
@@ -49,50 +48,6 @@
   transform: translateY(-1px);
 }
 
-/* ── 2. Modern Floating Pill Stepper (Replaces Polygon Chevrons) ───────── */
-.rail {
-  gap: 6px;
-  padding: 5px var(--sp-5);
-  background: color-mix(in srgb, var(--surface-pane) 65%, var(--surface-canvas));
-}
-
-.rail-step,
-.rail-step:first-child {
-  clip-path: none;
-  margin-left: 0 !important;
-  min-width: 132px;
-  height: 34px;
-  padding: 0 12px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  background: transparent;
-  transition: all var(--duration-fast) var(--ease-standard);
-}
-
-.rail-step:hover {
-  background: color-mix(in srgb, var(--surface-raised) 80%, transparent);
-  border-color: var(--border-subtle);
-}
-
-.rail-step[data-state="current"] {
-  background: var(--card-gradient);
-  border-color: color-mix(in srgb, var(--action-primary) 42%, var(--border-default));
-  box-shadow: var(--specular-top), 0 4px 14px color-mix(in srgb, var(--action-primary) 12%, transparent);
-}
-
-.rail-step[data-state="current"]::after {
-  left: 12px;
-  right: 12px;
-  bottom: -1px;
-  height: 2px;
-}
-
-.rail-sep {
-  display: inline-block;
-  color: var(--border-default);
-  font-size: 13px;
-  user-select: none;
-}
 
 /* ── 3. Sleek Mode Switcher Pill in Header ─────────────────────────────── */
 #modeSwitch {

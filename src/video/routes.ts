@@ -253,9 +253,15 @@ export async function handleVideoApi(
     const scan = bridge.getScan();
     if (!scan) throw Object.assign(new Error("Scan the library first."), { status: 400 });
 
-    const body = await readBody<{ policy?: Partial<VideoPolicy> }>(req);
+    const body = await readBody<{
+      policy?: Partial<VideoPolicy>;
+      customDestination?: string;
+    }>(req);
     if (body.policy) {
       vState.policy = mergeVideoPolicyUpdate(vState.policy, body.policy);
+    }
+    if (typeof body.customDestination === "string" && body.customDestination.trim()) {
+      vState.customDestination = body.customDestination.trim();
     }
 
     const ratio = vState.ratios[vState.policy.outputFormat];
@@ -326,9 +332,15 @@ export async function handleVideoApi(
     const scan = bridge.getScan();
     if (!scan) throw Object.assign(new Error("Scan the library first."), { status: 400 });
 
-    const body = await readBody<{ policy?: Partial<VideoPolicy> }>(req);
+    const body = await readBody<{
+      policy?: Partial<VideoPolicy>;
+      customDestination?: string;
+    }>(req);
     if (body.policy) {
       vState.policy = mergeVideoPolicyUpdate(vState.policy, body.policy);
+    }
+    if (typeof body.customDestination === "string" && body.customDestination.trim()) {
+      vState.customDestination = body.customDestination.trim();
     }
 
     const preview = applyVideoPolicy(
@@ -649,10 +661,14 @@ export async function handleVideoApi(
       overwrite?: boolean;
       onlyNew?: boolean;
       policy?: Partial<VideoPolicy>;
+      customDestination?: string;
     }>(req);
 
     if (body.policy) {
       vState.policy = mergeVideoPolicyUpdate(vState.policy, body.policy);
+    }
+    if (typeof body.customDestination === "string" && body.customDestination.trim()) {
+      vState.customDestination = body.customDestination.trim();
     }
 
     const ff = requireFfmpeg();

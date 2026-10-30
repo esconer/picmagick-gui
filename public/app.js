@@ -1560,7 +1560,8 @@ function createRunLifecycle(options) {
           cpuLimit: cpuLimitInput?.valueAsNumber ?? 70,
           overwrite: Boolean(overwrite?.checked),
           onlyNew: Boolean(runOptions.onlyNew ?? onlyNew?.checked),
-          policy: options.policy()
+          policy: options.policy(),
+          customDestination: state.mediaMode === "video" && state.videoDestMode === "custom" ? document.getElementById("destination")?.value.trim() || state.videoCustomDestination : undefined
         }
       });
       resetRun(response.total);
@@ -1785,11 +1786,6 @@ var SPOTLIGHT_SELECTOR = ".format-card, .stat.tile, .preflight-tile, .plan-hero"
 var STAGGER_CONTAINERS = [
   "#formatCards",
   "#moreFormats",
-  ".stat-row",
-  ".preflight",
-  "#planWarnings",
-  "#folderSplit",
-  "#compareLadder",
   "#healthBody"
 ];
 function initMicrointeractions() {
@@ -1815,6 +1811,8 @@ function initMicrointeractions() {
     }
   }, { rootMargin: "0px 0px -12px 0px", threshold: 0.08 }) : null;
   const applyStaggerAndReveal = () => {
+    if (state.running || state.starting)
+      return;
     for (const selector of STAGGER_CONTAINERS) {
       const container = document.querySelector(selector);
       if (!container)
@@ -1825,7 +1823,7 @@ function initMicrointeractions() {
       });
     }
     if (scrollObserver) {
-      const scrollItems = document.querySelectorAll(".group, .folder-row, .activity-row:not(.is-visible)");
+      const scrollItems = document.querySelectorAll(".group:not(.reveal-on-scroll), .activity-row:not(.reveal-on-scroll)");
       scrollItems.forEach((el) => {
         if (!el.classList.contains("is-visible")) {
           el.classList.add("reveal-on-scroll");
@@ -1839,6 +1837,8 @@ function initMicrointeractions() {
   if (workspace && "MutationObserver" in window) {
     let rafId = 0;
     const mo = new MutationObserver(() => {
+      if (state.running || state.starting)
+        return;
       if (rafId)
         return;
       rafId = window.requestAnimationFrame(() => {
@@ -3165,10 +3165,15 @@ var policy = () => {
 var budgetBytes = () => Math.max(1, Math.round(input("budget").valueAsNumber)) * 1024 ** 3;
 var save = async () => {
   if (state.mediaMode === "video") {
+    if (state.videoDestMode === "custom") {
+      const val = input("destination").value.trim();
+      if (val)
+        state.videoCustomDestination = val;
+    }
     await api("config", {
       method: "POST",
       body: {
-        customDestination: state.videoDestMode === "custom" ? input("destination").value.trim() : state.videoCustomDestination,
+        customDestination: state.videoDestMode === "custom" ? state.videoCustomDestination || input("destination").value.trim() : state.videoCustomDestination,
         budgetBytes: budgetBytes(),
         policy: policy()
       }
@@ -3204,7 +3209,10 @@ var refreshPreview = async () => {
     await save();
     const preview = await api("preview", {
       method: "POST",
-      body: { policy: policy() }
+      body: {
+        policy: policy(),
+        customDestination: state.mediaMode === "video" && state.videoDestMode === "custom" ? state.videoCustomDestination || input("destination").value.trim() : undefined
+      }
     });
     if (seq !== previewSeq)
       return;
@@ -3423,10 +3431,18 @@ var applyDestination = async (previous) => {
   }
   clearDestError();
   try {
+    if (state.mediaMode === "video") {
+      state.videoCustomDestination = destination;
+      syncVideoDestUi();
+    }
     await save();
     await refreshPreview();
   } catch (error) {
     input("destination").value = previous;
+    if (state.mediaMode === "video") {
+      state.videoCustomDestination = previous;
+      syncVideoDestUi();
+    }
     showDestError(formatError(error));
     toast(formatError(error), "danger");
   }
@@ -3445,6 +3461,10 @@ var pickFolder = async (kind) => {
     } else {
       const previous = input("destination").value;
       input("destination").value = result.path;
+      if (state.mediaMode === "video") {
+        state.videoCustomDestination = result.path;
+        syncVideoDestUi();
+      }
       await applyDestination(previous);
     }
   } catch (error) {
@@ -3517,7 +3537,11 @@ var syncVideoDestUi = () => {
   } else {
     destInput.readOnly = false;
     pickBtn.disabled = false;
+    if (!state.videoCustomDestination && destInput.value.trim()) {
+      state.videoCustomDestination = destInput.value.trim();
+    }
     destInput.value = state.videoCustomDestination || `${input("sourceRoot").value.replace(/[\\/]+$/, "")}-${state.currentFormat}`;
+    state.videoCustomDestination = destInput.value;
     $("videoDestResolved").textContent = `Writing to separate custom location: ${destInput.value}`;
   }
 };
@@ -4375,9 +4399,21 @@ input("destination").addEventListener("keydown", (event) => {
     input("destination").blur();
   }
 });
+input("destination").addEventListener("input", () => {
+  if (state.mediaMode === "video" && state.videoDestMode === "custom") {
+    const val = input("destination").value.trim();
+    state.videoCustomDestination = val;
+    $("videoDestResolved").textContent = `Writing to separate custom location: ${val || "…"}`;
+    schedulePreview();
+  }
+});
 input("destination").addEventListener("change", () => {
   const previous = destinationBefore || input("destination").value;
   destinationBefore = input("destination").value;
+  if (state.mediaMode === "video" && state.videoDestMode === "custom") {
+    state.videoCustomDestination = input("destination").value.trim();
+    syncVideoDestUi();
+  }
   if (input("destination").value.trim() !== previous.trim()) {
     applyDestination(previous);
   }
