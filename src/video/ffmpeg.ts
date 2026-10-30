@@ -169,6 +169,8 @@ export function findFfmpeg(forceRefresh = false): FfmpegInfo {
     try {
       for (const ent of readdirSync(FFMPEG_DIR, { withFileTypes: true })) {
         if (ent.isDirectory()) {
+          const direct = path.join(FFMPEG_DIR, ent.name);
+          candidateDirs.push({ dir: direct, managed: true });
           const nested = path.join(FFMPEG_DIR, ent.name, "bin");
           if (existsSync(nested)) candidateDirs.push({ dir: nested, managed: true });
         }
@@ -248,9 +250,24 @@ export function getFfmpegInstallProgress(): FfmpegInstallProgress {
   };
 }
 
+function getTarBinary(): string {
+  if (IS_WINDOWS) {
+    const sys = process.env.SystemRoot ?? "C:\\Windows";
+    const sysTar = path.join(sys, "System32", "tar.exe");
+    if (existsSync(sysTar)) return sysTar;
+  }
+  return "tar";
+}
+
 export async function installLatestFfmpeg(): Promise<{ ok: boolean; path: string }> {
   if (installState.stage === "downloading" || installState.stage === "extracting") {
     throw new Error("FFmpeg installation is already in progress.");
+  }
+
+  if (!IS_WINDOWS && process.platform !== "linux") {
+    throw new Error(
+      "Automated FFmpeg download is supported on Windows and Linux. On macOS, install FFmpeg via Homebrew ('brew install ffmpeg').",
+    );
   }
 
   const url = IS_WINDOWS
@@ -273,6 +290,7 @@ export async function installLatestFfmpeg(): Promise<{ ok: boolean; path: string
 
     const res = await fetch(url, {
       headers: { "user-agent": "picmagick-gui/1.2.1" },
+      redirect: "follow",
     });
     if (!res.ok || !res.body) {
       throw new Error(`Download failed with HTTP ${res.status}`);
@@ -301,16 +319,23 @@ export async function installLatestFfmpeg(): Promise<{ ok: boolean; path: string
     installState.percent = 100;
     installState.message = "Extracting FFmpeg package…";
 
-    if (archivePath.endsWith(".zip")) {
-      execFileSync("tar", ["-xf", archivePath, "-C", FFMPEG_DIR], {
-        windowsHide: true,
-        timeout: 120_000,
-      });
-    } else {
-      execFileSync("tar", ["-xf", archivePath, "-C", FFMPEG_DIR], {
-        windowsHide: true,
-        timeout: 120_000,
-      });
+    const tarCmd = getTarBinary();
+    execFileSync(tarCmd, ["-xf", archivePath, "-C", FFMPEG_DIR], {
+      windowsHide: true,
+      timeout: 120_000,
+    });
+
+    if (!IS_WINDOWS) {
+      try {
+        for (const ent of readdirSync(FFMPEG_DIR, { withFileTypes: true, recursive: true })) {
+          if (ent.isFile() && (ent.name === "ffmpeg" || ent.name === "ffprobe")) {
+            const p = path.join(ent.parentPath || FFMPEG_DIR, ent.name);
+            chmodSync(p, 0o755);
+          }
+        }
+      } catch {
+        // best effort
+      }
     }
 
     rmSync(archivePath, { force: true });
