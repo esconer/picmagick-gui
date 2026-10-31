@@ -122,7 +122,7 @@ const videoBridge: SharedServerBridge = {
   getBudgetBytes: () => state.budgetBytes,
   setBudgetBytes: (b: number) => { state.budgetBytes = b; },
   getScan: () => state.scan,
-  getFileByRel: (rel: string) => state.index.get(rel),
+  getFileByRel: (rel: string) => findFileByRel(rel),
   getPreviewCacheDir: () => previewCacheDir,
 };
 
@@ -216,6 +216,23 @@ function cacheKeyFor(file: ScannedFile, prefix: string): string {
   const hasher = new Bun.CryptoHasher("sha256");
   hasher.update(`${file.abs}:${file.mtime}:${file.size}`);
   return `${prefix}_${hasher.digest("hex").slice(0, 16)}.jpg`;
+}
+
+function findFileByRel(rel: string | null): ScannedFile | undefined {
+  if (!rel) return undefined;
+  const direct = state.index.get(rel);
+  if (direct) return direct;
+  const backslash = rel.replace(/\//g, "\\");
+  const forward = rel.replace(/\\/g, "/");
+  const bySlash = state.index.get(backslash) ?? state.index.get(forward);
+  if (bySlash) return bySlash;
+  const needle = rel.replace(/[\\/]+/g, "/").toLowerCase();
+  for (const [key, file] of state.index.entries()) {
+    if (key.replace(/[\\/]+/g, "/").toLowerCase() === needle) {
+      return file;
+    }
+  }
+  return undefined;
 }
 
 /** Set after Bun.serve() so the shutdown route can stop the listener. */
@@ -616,7 +633,7 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
   if (route === "compare" && req.method === "POST") {
     const body = await readBody<{ rel: string; qualities?: number[]; format?: string }>(req);
     if (!state.scan) throw new HttpError(400, "Scan the library first.");
-    const file = state.index.get(body.rel);
+    const file = findFileByRel(body.rel);
     if (!file) throw new HttpError(404, `Not in scan: ${body.rel}`);
 
     const format = isOutputFormat(body.format) ? body.format : state.policy.outputFormat;
@@ -683,7 +700,7 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
   if (route === "source-file" && req.method === "GET") {
     if (!state.scan) throw new HttpError(404, "No scan.");
     const rel = url.searchParams.get("rel");
-    const file = state.index.get(rel ?? "");
+    const file = findFileByRel(rel);
     if (!file) throw new HttpError(404, "Not in scan.");
 
     // This route exists so the browser can show the untouched original next to
@@ -700,9 +717,8 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
       );
     }
 
-    // Stream from disk rather than buffering the whole file.
-    const stream = Bun.file(file.abs).stream();
-    return new Response(stream, {
+    const data = await readFile(file.abs);
+    return new Response(data, {
       headers: {
         "content-type": IMAGE_MIME[file.ext.toLowerCase()],
         "content-length": String(file.size),
@@ -715,7 +731,7 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
   if (route === "thumb" && req.method === "GET") {
     if (!state.scan) throw new HttpError(404, "No scan.");
     const rel = url.searchParams.get("rel");
-    const file = state.index.get(rel ?? "");
+    const file = findFileByRel(rel);
     if (!file) throw new HttpError(404, "Not in scan.");
 
     await ensureDir(previewCacheDir);
@@ -731,7 +747,8 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
             await extractVideoFramePng(ffmpeg.ffmpegPath, file.abs, 1.0, pngPath);
           }
           if (existsSync(pngPath)) {
-            return new Response(Bun.file(pngPath).stream(), {
+            const data = await readFile(pngPath);
+            return new Response(data, {
               headers: {
                 "content-type": "image/png",
                 "cache-control": "public, max-age=86400",
@@ -770,7 +787,8 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
           });
         });
       } else if (IMAGE_MIME[file.ext.toLowerCase()]) {
-        return new Response(Bun.file(file.abs).stream(), {
+        const data = await readFile(file.abs);
+        return new Response(data, {
           headers: {
             "content-type": IMAGE_MIME[file.ext.toLowerCase()],
             "cache-control": "public, max-age=86400",
@@ -781,7 +799,8 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
       }
     }
 
-    return new Response(Bun.file(thumbPath).stream(), {
+    const data = await readFile(thumbPath);
+    return new Response(data, {
       headers: {
         "content-type": "image/jpeg",
         "cache-control": "public, max-age=86400",
@@ -793,13 +812,14 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
   if (route === "view-image" && req.method === "GET") {
     if (!state.scan) throw new HttpError(404, "No scan.");
     const rel = url.searchParams.get("rel");
-    const file = state.index.get(rel ?? "");
+    const file = findFileByRel(rel);
     if (!file) throw new HttpError(404, "Not in scan.");
 
     const ext = file.ext.toLowerCase();
     // Directly stream browser-native formats if within size limit
     if (NATIVE_IMAGE_EXTS.has(ext) && file.size <= MAX_PASSTHROUGH_BYTES) {
-      return new Response(Bun.file(file.abs).stream(), {
+      const data = await readFile(file.abs);
+      return new Response(data, {
         headers: {
           "content-type": IMAGE_MIME[ext] ?? "image/jpeg",
           "cache-control": "no-store",
@@ -816,7 +836,8 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
           await extractVideoFramePng(ffmpeg.ffmpegPath, file.abs, 1.0, framePath);
         }
         if (existsSync(framePath)) {
-          return new Response(Bun.file(framePath).stream(), {
+          const data = await readFile(framePath);
+          return new Response(data, {
             headers: {
               "content-type": "image/png",
               "cache-control": "public, max-age=86400",
@@ -861,7 +882,8 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
       });
     }
 
-    return new Response(Bun.file(viewPath).stream(), {
+    const data = await readFile(viewPath);
+    return new Response(data, {
       headers: {
         "content-type": "image/jpeg",
         "cache-control": "public, max-age=86400",
