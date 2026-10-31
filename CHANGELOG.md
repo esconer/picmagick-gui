@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.3.1 - 2026-10-31
+
+- Rebranded project to Compakta (`esconer/compakta`):
+  - Renamed GitHub repository, desktop identifier, and application titles.
+  - Added new high-resolution K-press squircle app icon and favicon across web, Windows (`.ico`), and Linux (`.png`).
+  - Integrated the new Compakta K-press icon directly into the identity header brand mark with hover glow.
+  - Automatic background startup migration from legacy `AppData/picmagick-gui` preserving downloaded ImageMagick/FFmpeg toolchains and previous undo manifests.
+  - Self-updater enhanced with dual-target backward compatibility for both Compakta and legacy releases.
+  - Added `.svg`, `.png`, and `.ico` MIME type routing for static assets.
+
 ## 1.3.0 - 2026-10-31
 
 - Added an isolated, full-featured Video Transcoding Engine powered by FFmpeg:
