@@ -1,5 +1,5 @@
 /**
- * ImageMagick picmagick-gui - local server.
+ * Compakta - local media optimization server.
  *
  * Bun.serve() on localhost only. Every route either reads state or shells out
  * to the local ImageMagick build. The source tree is never written to.
@@ -522,7 +522,7 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
 
     // Let this response reach the browser, then stop the listener and exit.
     setTimeout(() => requestShutdown?.(), 300);
-    return json({ ok: true, message: "picmagick-gui is shutting down." });
+    return json({ ok: true, message: "Compakta is shutting down." });
   }
 
   // ---- managed ImageMagick: local install + GitHub update check ----
@@ -589,7 +589,7 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
     });
   }
 
-  // ---- PicMagick GUI self-update routes ----
+  // ---- Compakta self-update routes ----
   if (route === "app/update" && req.method === "GET") {
     return json(await checkAppUpdate(url.searchParams.get("force") === "1"));
   }
@@ -621,8 +621,8 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
       throw new HttpError(
         409,
         live.state === "paused"
-          ? "A conversion is paused. Resume or cancel it before updating PicMagick GUI."
-          : "A conversion is currently running. Wait for it to complete or cancel it before updating PicMagick GUI.",
+          ? "A conversion is paused. Resume or cancel it before updating Compakta."
+          : "A conversion is currently running. Wait for it to complete or cancel it before updating Compakta.",
       );
     }
     const result = await applyAppUpdate();
@@ -1360,7 +1360,7 @@ export function startServer(options: ServerOptions = {}): RunningServer {
 
   console.log(`Source      : ${state.sourceRoot}`);
   console.log(`Destination : ${state.destination}`);
-  console.log(`\n  picmagick-gui running at http://127.0.0.1:${boundPort}\n`);
+  console.log(`\n  Compakta running at http://127.0.0.1:${boundPort}\n`);
 
   if (options.open ?? process.argv.includes("--open")) {
     openBrowser(`http://127.0.0.1:${boundPort}`);

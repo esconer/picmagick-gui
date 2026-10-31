@@ -8,6 +8,7 @@ const ensure = spawnSync("bun", ["run", "scripts/ensure-bundled-magick.ts"], {
   stdio: "inherit",
   env: {
     ...process.env,
+    COMPAKTA_FORCE_BUNDLE: "1",
     PICMAGIK_FORCE_BUNDLE: "1",
   },
 });
@@ -15,11 +16,12 @@ if (ensure.status !== 0) {
   process.exit(ensure.status ?? 1);
 }
 
-// 2. Build with PICMAGIK_FLAVOR=full
+// 2. Build with COMPAKTA_FLAVOR=full
 const build = spawnSync("bun", ["run", "desktop:build"], {
   stdio: "inherit",
   env: {
     ...process.env,
+    COMPAKTA_FLAVOR: "full",
     PICMAGIK_FLAVOR: "full",
   },
 });

@@ -6,7 +6,8 @@
  */
 import { $ } from "./dom.ts";
 
-const STORAGE_KEY = "picmagick_pane_ratios";
+const STORAGE_KEY = "compakta_pane_ratios";
+const LEGACY_STORAGE_KEY = "picmagick_pane_ratios";
 const MIN_PANE_PX = 220;
 
 export function initSplitPanes(): void {
@@ -42,6 +43,7 @@ export function initSplitPanes(): void {
     workspace.style.removeProperty("--w-pane-3");
     try {
       localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
     } catch {
       // Ignore
     }
@@ -49,7 +51,7 @@ export function initSplitPanes(): void {
 
   // Restore saved ratios if valid
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
     if (saved) {
       const [r1, r2, r3] = JSON.parse(saved) as [number, number, number];
       if (

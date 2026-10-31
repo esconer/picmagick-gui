@@ -1,11 +1,11 @@
 {
-  "name": "picmagick-gui",
+  "name": "compakta",
   "version": "1.3.0",
   "private": true,
   "type": "module",
-  "description": "Local GUI for converting a photo library to JXL, AVIF, WebP, HEIC, JPEG 2000, JPEG, or PNG with include/exclude control, budget estimates, verification and safe undo",
+  "description": "Local GUI for compressing and converting photos and videos with include/exclude control, budget estimates, verification and safe undo",
   "license": "MIT",
-  "author": "picmagick-gui contributors",
+  "author": "Compakta contributors",
   "engines": {
     "bun": ">=1.1.0"
   },

@@ -1769,7 +1769,8 @@ function createRunLifecycle(options) {
 }
 
 // src/client/split-panes.ts
-var STORAGE_KEY = "picmagick_pane_ratios";
+var STORAGE_KEY = "compakta_pane_ratios";
+var LEGACY_STORAGE_KEY = "picmagick_pane_ratios";
 var MIN_PANE_PX = 220;
 function initSplitPanes() {
   const workspace = $("workspace");
@@ -1799,10 +1800,11 @@ function initSplitPanes() {
     workspace.style.removeProperty("--w-pane-3");
     try {
       localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
     } catch {}
   };
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
     if (saved) {
       const [r1, r2, r3] = JSON.parse(saved);
       if (Number.isFinite(r1) && Number.isFinite(r2) && Number.isFinite(r3) && r1 > 0 && r2 > 0 && r3 > 0) {
@@ -4135,7 +4137,7 @@ var renderAppPill = (status) => {
     pill.classList.remove("hidden", "warn");
     pill.classList.add("ready");
     pill.textContent = `Update Ready (v${status.latestVersion}) — Click to Apply`;
-    pill.title = `PicMagick GUI v${status.latestVersion} is downloaded and ready. Click to restart and apply.`;
+    pill.title = `Compakta v${status.latestVersion} is downloaded and ready. Click to restart and apply.`;
   } else if (status.stage === "downloading") {
     pill.classList.remove("hidden", "ready");
     pill.classList.add("warn");
@@ -4144,7 +4146,7 @@ var renderAppPill = (status) => {
   } else if (status.updateAvailable && status.latestVersion) {
     pill.classList.remove("hidden", "ready");
     pill.classList.add("warn");
-    pill.textContent = `PicMagick v${status.latestVersion} available`;
+    pill.textContent = `Compakta v${status.latestVersion} available`;
     pill.title = `New version v${status.latestVersion} available — click to review`;
   } else {
     pill.classList.add("hidden");
@@ -4170,7 +4172,7 @@ var pollAppDownloadProgress = () => {
             window.clearInterval(appUpdateTimer);
             appUpdateTimer = null;
           }
-          toast(`PicMagick GUI v${p.latestVersion} is ready to install!`, "success");
+          toast(`Compakta v${p.latestVersion} is ready to install!`, "success");
           if (document.getElementById("appDownloadFill")) {
             openAppUpdateModal(p);
           }
@@ -4188,7 +4190,7 @@ var pollAppDownloadProgress = () => {
 var openAppUpdateModal = (status) => {
   if (status.stage === "ready") {
     const isJobActive = state.running || state.run.state === "running" || state.run.state === "paused";
-    plainModal("Update Ready to Install", `<p class="modal-copy">PicMagick GUI <strong>v${escapeHtml(status.latestVersion ?? "")}</strong> is downloaded and ready to install.</p>
+    plainModal("Update Ready to Install", `<p class="modal-copy">Compakta <strong>v${escapeHtml(status.latestVersion ?? "")}</strong> is downloaded and ready to install.</p>
        <div class="fact-list">
          <div class="fact-row"><span>New version</span><span class="mono">v${escapeHtml(status.latestVersion ?? "")}</span></div>
          <div class="fact-row"><span>Current version</span><span class="mono">v${escapeHtml(status.currentVersion)}</span></div>
@@ -4207,7 +4209,7 @@ var openAppUpdateModal = (status) => {
           const btn = $("btnAppApply");
           btn.disabled = true;
           btn.textContent = "Restarting…";
-          plainModal("Applying Update", `<p class="modal-copy ok">Launching the installer and restarting PicMagick GUI…</p>
+          plainModal("Applying Update", `<p class="modal-copy ok">Launching the installer and restarting Compakta…</p>
              <p class="note">This window will close as the installer updates your application.</p>`, "sm");
           setModalFoot("");
           await api("app/update/apply", { method: "POST", body: {} });
@@ -4220,7 +4222,7 @@ var openAppUpdateModal = (status) => {
     return;
   }
   if (status.stage === "downloading") {
-    plainModal(`Downloading PicMagick GUI v${escapeHtml(status.latestVersion ?? "")}`, `<p class="modal-copy">Downloading the update in the background…</p>
+    plainModal(`Downloading Compakta v${escapeHtml(status.latestVersion ?? "")}`, `<p class="modal-copy">Downloading the update in the background…</p>
        <div class="meter" style="margin-top:14px"><div id="appDownloadFill"></div></div>
        <p id="appDownloadNote" class="note" aria-live="polite">${escapeHtml(status.message)}</p>
        <p class="note" style="margin-top:10px">You can close this dialog at any time. The download will continue in the background while you work.</p>`, "sm");
@@ -4236,7 +4238,7 @@ var openAppUpdateModal = (status) => {
     return;
   }
   if (!status.isDesktop) {
-    plainModal("PicMagick GUI Update Available", `<p class="modal-copy">PicMagick GUI <strong>v${escapeHtml(status.latestVersion ?? "")}</strong> is available on GitHub (current: v${escapeHtml(status.currentVersion)}).</p>
+    plainModal("Compakta Update Available", `<p class="modal-copy">Compakta <strong>v${escapeHtml(status.latestVersion ?? "")}</strong> is available on GitHub (current: v${escapeHtml(status.currentVersion)}).</p>
        <p class="modal-copy">You are running from a source checkout. Run <code>git pull && bun install</code> to update.</p>`, "sm");
     setModalFoot(`<button id="btnAppLater" class="btn ghost" type="button">Close</button>` + (status.releaseUrl ? `<a href="${escapeHtml(status.releaseUrl)}" target="_blank" class="btn primary" style="display:inline-flex;align-items:center;text-decoration:none">View on GitHub</a>` : ""));
     $("btnAppLater").addEventListener("click", () => {
@@ -4245,7 +4247,7 @@ var openAppUpdateModal = (status) => {
     });
     return;
   }
-  plainModal("New Version of PicMagick Available", `<p class="modal-copy">PicMagick GUI <strong>v${escapeHtml(status.latestVersion ?? "")}</strong> is now available (you are on v${escapeHtml(status.currentVersion)}). Would you like to download it now?</p>
+  plainModal("New Version of Compakta Available", `<p class="modal-copy">Compakta <strong>v${escapeHtml(status.latestVersion ?? "")}</strong> is now available (you are on v${escapeHtml(status.currentVersion)}). Would you like to download it now?</p>
      <div class="fact-list">
        <div class="fact-row"><span>New version</span><span class="mono">v${escapeHtml(status.latestVersion ?? "")}</span></div>
        <div class="fact-row"><span>Current version</span><span class="mono">v${escapeHtml(status.currentVersion)}</span></div>
@@ -4266,7 +4268,7 @@ var openAppUpdateModal = (status) => {
   $("btnAppDownload").addEventListener("click", () => {
     (async () => {
       try {
-        toast(`Downloading PicMagick GUI v${status.latestVersion} in the background…`, "info");
+        toast(`Downloading Compakta v${status.latestVersion} in the background…`, "info");
         await api("app/update/download", { method: "POST", body: {} });
         status.stage = "downloading";
         status.percent = 0;
@@ -4310,7 +4312,7 @@ var handleAppUpdateClick = () => {
 };
 var openAbout = () => {
   const status = state.status;
-  plainModal("About picmagick-gui", `<p class="modal-copy">A local-first photo converter. The source library is only ever read; every output is written to a separate destination and recorded in an undoable manifest.</p>
+  plainModal("About Compakta", `<p class="modal-copy">A local-first media optimizer and converter for photos and videos. The source library is only ever read; every output is written to a separate destination and recorded in an undoable manifest.</p>
      <div class="fact-list">
        <div class="fact-row"><span>Version</span><span>v${APP_VERSION}</span></div>
        <div class="fact-row"><span>Check for updates</span><button id="btnAboutCheckUpdate" class="btn ghost sm" type="button">Check now</button></div>
@@ -4330,13 +4332,13 @@ var openAbout = () => {
   });
 };
 var showServerStopped = () => {
-  plainModal("Server closed", `<p class="modal-copy ok">picmagick-gui has stopped. You can close this tab.</p>`, "sm");
+  plainModal("Server closed", `<p class="modal-copy ok">Compakta has stopped. You can close this tab.</p>`, "sm");
   $("btnQuit").setAttribute("disabled", "disabled");
 };
 var quitServer = () => {
   (async () => {
     const ok = await ask({
-      title: "Close picmagick-gui",
+      title: "Close Compakta",
       body: `<p class="modal-copy">Stop the local server?</p>
         <p class="modal-copy">The page will lose its connection. Files already written stay on disk. A running or paused conversion blocks shutdown until it is paused, resumed, or cancelled.</p>`,
       confirmLabel: "Close server",

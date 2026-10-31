@@ -68,12 +68,14 @@ jobs:
         run: bun run scripts/ensure-bundled-magick.ts
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMPAKTA_FORCE_BUNDLE: "1"
           PICMAGIK_FORCE_BUNDLE: "1"
 
       - name: Build full desktop app (with ImageMagick)
         run: bun run desktop:build:full
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMPAKTA_FORCE_BUNDLE: "1"
           PICMAGIK_FORCE_BUNDLE: "1"
 
       - name: Restore slim artifacts

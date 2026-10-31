@@ -123,7 +123,7 @@ export async function analyseSync(
       const full = path.join(dir, e.name);
       if (e.isDirectory()) { await walk(full); continue; }
       if (!e.isFile()) continue;
-      if (e.name.startsWith(".picmagic-manifest-")) continue;
+      if (e.name.startsWith(".picmagic-manifest-") || e.name.startsWith(".compakta-manifest-")) continue;
       // In merge mode, video files sharing the photo destination tree are not photo orphans
       if (/\.(mp4|mkv|webm|mov|m4v|avi)$/i.test(e.name)) continue;
       if (expected.has(pathKey(path.resolve(full)))) continue;

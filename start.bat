@@ -1,5 +1,5 @@
 @echo off
-REM One-click launcher for picmagick-gui.
+REM One-click launcher for Compakta.
 REM Starts the server, waits for it to answer, then opens your browser.
 
 setlocal
@@ -15,11 +15,11 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo Starting picmagick-gui...
+echo Starting Compakta...
 echo.
 
 REM Run detached so this window can close and the server keeps going.
-start "picmagick-gui" /min bun run src\server.ts
+start "Compakta" /min bun run src\server.ts
 
 REM Wait for the port to answer before opening a browser.
 set PORT=5178
@@ -31,6 +31,6 @@ for /l %%i in (1,1,40) do (
 :ready
 echo Server is up: http://127.0.0.1:%PORT%
 start "" http://127.0.0.1:%PORT%
-echo Browser opened. Close the minimised "picmagick-gui" window to stop the server.
+echo Browser opened. Close the minimised "Compakta" window to stop the server.
 echo.
 pause

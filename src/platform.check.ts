@@ -26,6 +26,7 @@ import {
   pickAppImageAsset, pickPortableAsset,
 } from "./imagemagick.ts";
 import { pickLeanAppAsset } from "./app-update.ts";
+import { migrateLegacyData } from "./migration.ts";
 import { calculateAffinityMask, applyProcessCpuLimit, suspendProcess, resumeProcess } from "./cpu.ts";
 import { spawn } from "node:child_process";
 import * as tree from "../src/client/tree-logic.ts";
@@ -444,23 +445,72 @@ await check("suspends and resumes process dynamically", () => {
   child.kill();
 });
 
-await check("app update picks the lean asset and ignores full and zst archives", () => {
-  const assets = [
+await check("app update picks the lean asset and prefers Compakta with PicMagick fallback", () => {
+  const legacyAssets = [
     { name: "stable-win-x64-PicMagickGUI.tar.zst", size: 45000000, browser_download_url: "https://dl/zst" },
     { name: "stable-win-x64-update.json", size: 100, browser_download_url: "https://dl/json" },
     { name: "win-x64-PicMagickGUIFull-Setup.zip", size: 125000000, browser_download_url: "https://dl/win-full" },
-    { name: "win-x64-PicMagickGUI-Setup.zip", size: 47000000, browser_download_url: "https://dl/win-lean" },
+    { name: "win-x64-PicMagickGUI-Setup.zip", size: 47000000, browser_download_url: "https://dl/win-legacy" },
     { name: "linux-x64-PicMagickGUIFull-Setup.tar.gz", size: 80000000, browser_download_url: "https://dl/lin-full" },
-    { name: "linux-x64-PicMagickGUI-Setup.tar.gz", size: 49000000, browser_download_url: "https://dl/lin-lean" },
+    { name: "linux-x64-PicMagickGUI-Setup.tar.gz", size: 49000000, browser_download_url: "https://dl/lin-legacy" },
   ];
-  const picked = pickLeanAppAsset(assets);
-  assert.ok(picked);
+  const legacyPicked = pickLeanAppAsset(legacyAssets);
+  assert.ok(legacyPicked);
   if (IS_WINDOWS) {
-    assert.equal(picked.name, "win-x64-PicMagickGUI-Setup.zip");
-    assert.equal(picked.url, "https://dl/win-lean");
+    assert.equal(legacyPicked.name, "win-x64-PicMagickGUI-Setup.zip");
+    assert.equal(legacyPicked.url, "https://dl/win-legacy");
   } else {
-    assert.equal(picked.name, "linux-x64-PicMagickGUI-Setup.tar.gz");
-    assert.equal(picked.url, "https://dl/lin-lean");
+    assert.equal(legacyPicked.name, "linux-x64-PicMagickGUI-Setup.tar.gz");
+    assert.equal(legacyPicked.url, "https://dl/lin-legacy");
+  }
+
+  const mixedAssets = [
+    ...legacyAssets,
+    { name: "win-x64-Compakta-Setup.zip", size: 46000000, browser_download_url: "https://dl/win-compakta" },
+    { name: "linux-x64-Compakta-Setup.tar.gz", size: 48000000, browser_download_url: "https://dl/lin-compakta" },
+  ];
+  const compaktaPicked = pickLeanAppAsset(mixedAssets);
+  assert.ok(compaktaPicked);
+  if (IS_WINDOWS) {
+    assert.equal(compaktaPicked.name, "win-x64-Compakta-Setup.zip");
+    assert.equal(compaktaPicked.url, "https://dl/win-compakta");
+  } else {
+    assert.equal(compaktaPicked.name, "linux-x64-Compakta-Setup.tar.gz");
+    assert.equal(compaktaPicked.url, "https://dl/lin-compakta");
+  }
+});
+
+await check("migrateLegacyData copies ImageMagick, FFmpeg, and manifests from older AppData", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "compakta-migration-"));
+  try {
+    const legacyDir = path.join(root, "legacy-picmagick-gui");
+    const targetDir = path.join(root, "Compakta");
+    await mkdir(path.join(legacyDir, "imagemagick"), { recursive: true });
+    await mkdir(path.join(legacyDir, "ffmpeg"), { recursive: true });
+    await mkdir(path.join(legacyDir, "manifests"), { recursive: true });
+    await mkdir(targetDir, { recursive: true });
+
+    await writeFile(path.join(legacyDir, "imagemagick", "magick.exe"), "dummy-magick");
+    await writeFile(path.join(legacyDir, "ffmpeg", "ffmpeg.exe"), "dummy-ffmpeg");
+    await writeFile(path.join(legacyDir, "manifests", "run1.json"), "{}");
+    await writeFile(path.join(legacyDir, ".picmagic-manifest-root.json"), "{}");
+
+    const summary = migrateLegacyData(targetDir, [legacyDir]);
+    assert.equal(summary.migratedMagick, true);
+    assert.equal(summary.migratedFfmpeg, true);
+    assert.equal(summary.migratedManifests, 2);
+
+    assert.equal(await Bun.file(path.join(targetDir, "imagemagick", "magick.exe")).text(), "dummy-magick");
+    assert.equal(await Bun.file(path.join(targetDir, "ffmpeg", "ffmpeg.exe")).text(), "dummy-ffmpeg");
+    assert.equal(await Bun.file(path.join(targetDir, "manifests", "run1.json")).text(), "{}");
+    assert.equal(await Bun.file(path.join(targetDir, ".picmagic-manifest-root.json")).text(), "{}");
+
+    // Idempotent: second run does not re-copy over existing target files
+    const secondSummary = migrateLegacyData(targetDir, [legacyDir]);
+    assert.equal(secondSummary.migratedMagick, false);
+    assert.equal(secondSummary.migratedFfmpeg, false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });
 

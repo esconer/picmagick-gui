@@ -7,11 +7,12 @@
  * unchanged, and `start.bat` / `start.sh` stay useful for source users.
  *
  * Writable state lives in the per-user data folder because packaged resources
- * are read-only. That covers managed ImageMagick and compare previews.
+ * are read-only. That covers managed ImageMagick, FFmpeg, and compare previews.
  */
 import { BrowserWindow, PATHS, Utils } from "electrobun/main";
 import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
+import { migrateLegacyData, getLegacyDataCandidates } from "./migration.ts";
 
 /**
  * Locate the packaged copy of `public/`.
@@ -21,6 +22,7 @@ import path from "node:path";
  */
 function findPublicDir(): string {
   const candidates = [
+    process.env.COMPAKTA_PUBLIC_DIR,
     process.env.PICMAGIK_PUBLIC_DIR,
     path.join(PATHS.RESOURCES_FOLDER, "app", "public"),
     path.join(PATHS.RESOURCES_FOLDER, "public"),
@@ -44,6 +46,7 @@ function findPublicDir(): string {
  */
 function findBundledMagickDir(): string | undefined {
   const candidates = [
+    process.env.COMPAKTA_BUNDLED_MAGICK_DIR,
     process.env.PICMAGIK_BUNDLED_MAGICK_DIR,
     path.join(PATHS.RESOURCES_FOLDER, "app", "imagemagick"),
     path.join(PATHS.RESOURCES_FOLDER, "imagemagick"),
@@ -58,26 +61,70 @@ function findBundledMagickDir(): string | undefined {
   return undefined;
 }
 
+/**
+ * Locate pre-bundled FFmpeg inside the packaged app if present.
+ */
+function findBundledFfmpegDir(): string | undefined {
+  const candidates = [
+    process.env.COMPAKTA_BUNDLED_FFMPEG_DIR,
+    process.env.PICMAGIK_BUNDLED_FFMPEG_DIR,
+    path.join(PATHS.RESOURCES_FOLDER, "app", "ffmpeg"),
+    path.join(PATHS.RESOURCES_FOLDER, "ffmpeg"),
+    path.resolve(import.meta.dir, "ffmpeg"),
+    path.resolve(import.meta.dir, "..", "ffmpeg"),
+    path.resolve(import.meta.dir, "..", "..", "ffmpeg"),
+  ].filter((dir): dir is string => Boolean(dir));
+
+  for (const dir of candidates) {
+    if (existsSync(dir)) return dir;
+  }
+  return undefined;
+}
+
 /** Per-user writable folder; never inside the installed app bundle. */
 function resolveDataDir(): string {
   try {
     return Utils.paths.userData;
   } catch {
-    return path.join(Utils.paths.appData, "picmagick-gui");
+    return path.join(Utils.paths.appData, "Compakta");
   }
 }
 
 const DATA_DIR = resolveDataDir();
 mkdirSync(DATA_DIR, { recursive: true });
 
+// Migrate any legacy picmagick-gui binaries and manifests to Compakta
+try {
+  const legacyCandidates = [
+    path.join(Utils.paths.appData, "picmagick-gui"),
+    path.join(Utils.paths.appData, "PicMagick GUI"),
+    ...getLegacyDataCandidates(Utils.paths.appData),
+  ];
+  migrateLegacyData(DATA_DIR, legacyCandidates);
+} catch (err) {
+  console.warn("[compakta] Startup legacy data migration notice:", err);
+}
+
 // Read by src/appdirs.ts and src/server.ts. Set before the server is imported.
+process.env.COMPAKTA_DESKTOP = "1";
 process.env.PICMAGIK_DESKTOP = "1";
+process.env.COMPAKTA_DATA_DIR = DATA_DIR;
 process.env.PICMAGIK_DATA_DIR = DATA_DIR;
-process.env.PICMAGIK_PUBLIC_DIR = findPublicDir();
+
+const publicDir = findPublicDir();
+process.env.COMPAKTA_PUBLIC_DIR = publicDir;
+process.env.PICMAGIK_PUBLIC_DIR = publicDir;
 
 const bundledMagick = findBundledMagickDir();
 if (bundledMagick) {
+  process.env.COMPAKTA_BUNDLED_MAGICK_DIR = bundledMagick;
   process.env.PICMAGIK_BUNDLED_MAGICK_DIR = bundledMagick;
+}
+
+const bundledFfmpeg = findBundledFfmpegDir();
+if (bundledFfmpeg) {
+  process.env.COMPAKTA_BUNDLED_FFMPEG_DIR = bundledFfmpeg;
+  process.env.PICMAGIK_BUNDLED_FFMPEG_DIR = bundledFfmpeg;
 }
 
 const { startServer } = await import("./server.ts");
@@ -89,7 +136,7 @@ const { port } = startServer({
 });
 
 new BrowserWindow({
-  title: "PicMagick GUI",
+  title: "Compakta",
   url: `http://127.0.0.1:${port}/`,
   frame: { width: 1280, height: 860 },
 });

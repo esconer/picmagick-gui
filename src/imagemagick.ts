@@ -25,7 +25,7 @@ export const IMAGEMAGICK_ROOT = MAGICK_DIR;
 
 const RELEASE_API = "https://api.github.com/repos/ImageMagick/ImageMagick/releases/latest";
 const RELEASES_PAGE = "https://github.com/ImageMagick/ImageMagick/releases";
-const USER_AGENT = "picmagick-gui-imagemagick-updater";
+const USER_AGENT = "compakta-imagemagick-updater";
 const CACHE_MS = 10 * 60 * 1000;
 
 export type PortableAsset = {

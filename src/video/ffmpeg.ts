@@ -290,7 +290,7 @@ export async function installLatestFfmpeg(): Promise<{ ok: boolean; path: string
     const archivePath = path.join(FFMPEG_DIR, path.basename(url));
 
     const res = await fetch(url, {
-      headers: { "user-agent": `picmagick-gui/${APP_VERSION}` },
+      headers: { "user-agent": `compakta/${APP_VERSION}` },
       redirect: "follow",
     });
     if (!res.ok || !res.body) {

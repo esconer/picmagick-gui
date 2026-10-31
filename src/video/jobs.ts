@@ -415,7 +415,7 @@ export class VideoJob extends EventEmitter {
             quality: [o.policy.quality],
             heicSpeed: o.policy.speed,
             outputFormat: o.policy.outputFormat as unknown as OutputFormat,
-            tool: "picmagick-gui-video",
+            tool: "compakta-video",
           },
           this.results,
         );

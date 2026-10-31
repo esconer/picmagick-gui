@@ -1,5 +1,5 @@
 /**
- * Browser-facing types for the picmagick-gui API.
+ * Browser-facing types for the Compakta API.
  *
  * Field names mirror src/server.ts and the domain modules exactly. The UI never
  * invents conversion facts; every value here comes from the local server.

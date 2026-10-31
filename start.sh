@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-click launcher for picmagick-gui on Linux.
+# One-click launcher for Compakta on Linux.
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -12,5 +12,5 @@ if ! command -v bun >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "Starting picmagick-gui..."
+echo "Starting Compakta..."
 exec bun run src/server.ts --open

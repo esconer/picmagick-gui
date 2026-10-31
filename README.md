@@ -1,14 +1,14 @@
-# picmagick-gui
+# Compakta
 
-A local browser UI for converting a photo library to JPEG XL, AVIF, WebP, HEIC,
-JPEG 2000, JPEG, or PNG derivatives without modifying the originals. It scans a
-folder, lets you include or exclude subfolders, previews the output against a
-storage budget, converts with ImageMagick, and records every run so it can be
-undone precisely. AVIF remains the default.
+A local desktop and browser app for compressing and converting photos and videos
+to modern, compact formats (AVIF, JPEG XL, WebP, HEIC, JPEG 2000, JPEG, PNG, AV1,
+HEVC, H.264, WebM) without modifying the originals. It scans a folder, lets you
+include or exclude subfolders, previews the output against a storage budget,
+processes with ImageMagick and FFmpeg, and records every run so it can be undone
+precisely.
 
 Everything runs on your machine. There is no account, no telemetry, and no
-upload. The only outbound requests are to GitHub for ImageMagick release checks
-and, if you accept one, the ImageMagick download.
+upload. Outbound requests are limited to GitHub for toolchain checks and self-updates.
 
 ## Contents
 
@@ -70,7 +70,7 @@ and, if you accept one, the ImageMagick download.
 |---|---|---|
 | Supported versions | Windows 10 or 11 | Linux |
 | Desktop app | Native window (WebView2) | Native window (WebKitGTK 4.1) |
-| Desktop installer | `win-x64-PicMagickGUI-Setup.zip` | `linux-x64-PicMagickGUI-Setup.tar.gz` |
+| Desktop installer | `win-x64-Compakta-Setup.zip` | `linux-x64-Compakta-Setup.tar.gz` |
 | Source launcher | `start.bat` | `start.sh` |
 | Folder picker | Native PowerShell dialog | `zenity` or `kdialog`; typed-path fallback |
 | ImageMagick | Portable Q16 build or system install | System ImageMagick 7 or official AppImage |
@@ -126,12 +126,12 @@ triggers the AppImage offer.
 ### Desktop app (Windows and Linux)
 
 Download the installer for your platform from the
-[Releases page](https://github.com/esconer/picmagick-gui/releases):
+[Releases page](https://github.com/esconer/compakta/releases):
 
 | Platform | Download | Install |
 |---|---|---|
-| Windows 10/11 x64 | `win-x64-PicMagickGUI-Setup.zip` | Unzip, then run `PicMagick GUI-Setup.exe`. It installs for the current user. |
-| Linux x64 | `linux-x64-PicMagickGUI-Setup.tar.gz` | Extract, then run `./installer`. |
+| Windows 10/11 x64 | `win-x64-Compakta-Setup.zip` | Unzip, then run `Compakta-Setup.exe`. It installs for the current user. |
+| Linux x64 | `linux-x64-Compakta-Setup.tar.gz` | Extract, then run `./installer`. |
 
 The desktop app opens its own window and starts the same local server on a free
 loopback port. Bun is bundled, so neither Bun nor a terminal is required.
@@ -151,7 +151,7 @@ the window stays blank, install the
 
 ### Automatic In-App Updates
 
-PicMagick GUI includes an integrated self-updater:
+Compakta includes an integrated self-updater:
 - **Update Checks**: Checks GitHub Releases for new versions without blocking the UI.
 - **Background Downloads**: When a new version is detected, you can choose to download the lean/slim update package (~45 MB) in the background while conversions continue uninterrupted.
 - **Safe Application**: Once downloaded, an "Update Ready" badge appears. Clicking it allows you to restart and apply the update whenever you are ready. Any bundled ImageMagick installation is automatically preserved into persistent user storage so you never have to redownload it.
@@ -162,8 +162,8 @@ PicMagick GUI includes an integrated self-updater:
 Clone the repository, then use the Windows or Linux launcher:
 
 ```bash
-git clone https://github.com/esconer/picmagick-gui.git
-cd picmagick-gui
+git clone https://github.com/esconer/compakta.git
+cd compakta
 ```
 
 #### Windows (source)
@@ -190,7 +190,7 @@ cd picmagick-gui
 
 `start.bat` starts the server in a detached, minimised window, waits for it to
 answer, and opens `http://127.0.0.1:5178`. Close that minimised
-**picmagick-gui** window to stop the server, or use **Quit** in the page header.
+**Compakta** window to stop the server, or use **Quit** in the page header.
 
 #### Linux (source)
 
@@ -842,8 +842,8 @@ A release contains:
 
 | Platform | Installer | Update artifacts |
 |---|---|---|
-| Windows x64 | `win-x64-PicMagickGUI-Setup.zip` | `stable-win-x64-PicMagickGUI.tar.zst`, `stable-win-x64-update.json` |
-| Linux x64 | `linux-x64-PicMagickGUI-Setup.tar.gz` | `stable-linux-x64-PicMagickGUI.tar.zst`, `stable-linux-x64-update.json` |
+| Windows x64 | `win-x64-Compakta-Setup.zip` | `stable-win-x64-Compakta.tar.zst`, `stable-win-x64-update.json` |
+| Linux x64 | `linux-x64-Compakta-Setup.tar.gz` | `stable-linux-x64-Compakta.tar.zst`, `stable-linux-x64-update.json` |
 
 To build for the current OS without publishing:
 

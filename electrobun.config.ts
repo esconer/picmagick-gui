@@ -1,6 +1,6 @@
 import type { ElectrobunConfig } from "electrobun";
 
-const isFull = process.env.PICMAGIK_FLAVOR === "full";
+const isFull = process.env.COMPAKTA_FLAVOR === "full" || process.env.PICMAGIK_FLAVOR === "full";
 const copy: Record<string, string> = {
   public: "public",
 };
@@ -17,13 +17,13 @@ if (isFull) {
  */
 export default {
   app: {
-    name: isFull ? "PicMagick GUI Full" : "PicMagick GUI",
+    name: isFull ? "Compakta Full" : "Compakta",
     identifier: isFull
-      ? "com.github.esconer.picmagick-gui-full"
-      : "com.github.esconer.picmagick-gui",
+      ? "com.github.esconer.compakta-full"
+      : "com.github.esconer.compakta",
     version: "1.3.0",
     description:
-      "Local GUI for converting a photo library to JXL, AVIF, WebP, HEIC, JPEG 2000, JPEG, or PNG.",
+      "Local GUI for compressing and converting photos and videos.",
   },
   build: {
     mainProcess: "bun",

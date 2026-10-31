@@ -7,6 +7,7 @@ import path from "node:path";
 import { installLatest } from "../src/imagemagick.ts";
 import { findMagick } from "../src/paths.ts";
 
+process.env.COMPAKTA_FORCE_BUNDLE = "1";
 process.env.PICMAGIK_FORCE_BUNDLE = "1";
 
 const MAGICK_DIR = path.resolve(import.meta.dir, "..", "imagemagick");

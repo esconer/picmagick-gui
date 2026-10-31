@@ -1,7 +1,7 @@
 /**
- * PicMagick GUI self-update management.
+ * Compakta self-update management.
  *
- * Checks GitHub Releases for the latest version of PicMagick GUI.
+ * Checks GitHub Releases for the latest version of Compakta.
  * When an update is available:
  * - Downloads the lean/slim platform installer package in the background into DATA_ROOT/.app-update.
  * - Extracts the installer and verifies the executable.
@@ -18,9 +18,11 @@ import { BUNDLED_MAGICK_DIR, DATA_ROOT, MAGICK_DIR } from "./appdirs.ts";
 import { IS_LINUX, IS_WINDOWS } from "./platform.ts";
 import { APP_VERSION, compareVersions, isNewerVersion, parseVersion } from "./version.ts";
 
-const REPO = "esconer/picmagick-gui";
+const REPO = "esconer/compakta";
+const FALLBACK_REPO = "esconer/picmagick-gui";
 const RELEASE_API = `https://api.github.com/repos/${REPO}/releases/latest`;
-const USER_AGENT = "picmagick-gui-app-updater";
+const FALLBACK_RELEASE_API = `https://api.github.com/repos/${FALLBACK_REPO}/releases/latest`;
+const USER_AGENT = "compakta-app-updater";
 const CACHE_MS = 10 * 60 * 1000;
 
 export const UPDATE_DIR = path.join(DATA_ROOT, ".app-update");
@@ -76,7 +78,7 @@ let state: AppUpdateStatus = {
   installerPath: null,
   checkedAt: null,
   error: null,
-  isDesktop: Boolean(process.env.PICMAGIK_DESKTOP),
+  isDesktop: Boolean(process.env.COMPAKTA_DESKTOP || process.env.PICMAGIK_DESKTOP),
 };
 
 export function getAppUpdateProgress(): AppUpdateStatus {
@@ -87,10 +89,15 @@ export function dismissAppUpdate(version?: string): void {
   dismissedVersion = version ?? state.latestVersion;
 }
 
-/** Pick the lean / slim installer package for the current OS. */
+/**
+ * Pick the lean / slim installer package for the current OS.
+ * Matches Compakta packages first, falling back to legacy PicMagickGUI packages.
+ */
 export function pickLeanAppAsset(
   assets: Array<{ name?: unknown; size?: unknown; browser_download_url?: unknown }>,
 ): LeanAsset | null {
+  const candidates: LeanAsset[] = [];
+
   for (const a of assets) {
     if (typeof a.name !== "string" || typeof a.browser_download_url !== "string") continue;
     const name = a.name;
@@ -98,18 +105,29 @@ export function pickLeanAppAsset(
     const size = Number(a.size) || 0;
 
     if (IS_WINDOWS) {
-      // Matches win-x64-PicMagickGUI-Setup.zip, excluding Full
+      // Matches win-x64-Compakta-Setup.zip or win-x64-PicMagickGUI-Setup.zip, excluding Full
       if (name.endsWith("-Setup.zip") && !name.includes("Full") && /win.*x64/i.test(name)) {
-        return { name, size, url };
+        candidates.push({ name, size, url });
       }
     } else if (IS_LINUX) {
-      // Matches linux-x64-PicMagickGUI-Setup.tar.gz, excluding Full
+      // Matches linux-x64-Compakta-Setup.tar.gz or linux-x64-PicMagickGUI-Setup.tar.gz, excluding Full
       if (name.endsWith("-Setup.tar.gz") && !name.includes("Full") && /linux.*x64/i.test(name)) {
-        return { name, size, url };
+        candidates.push({ name, size, url });
       }
     }
   }
-  return null;
+
+  if (candidates.length === 0) return null;
+
+  // 1. Prefer Compakta-named installer
+  const compaktaMatch = candidates.find((c) => /compakta/i.test(c.name));
+  if (compaktaMatch) return compaktaMatch;
+
+  // 2. Fall back to PicMagickGUI-named installer for backward compatibility
+  const legacyMatch = candidates.find((c) => /picmagick/i.test(c.name));
+  if (legacyMatch) return legacyMatch;
+
+  return candidates[0];
 }
 
 function findInstallerFile(dir: string): string | null {
@@ -165,7 +183,8 @@ function extractAppArchive(archive: string, destDir: string): void {
 }
 
 /**
- * Check GitHub for a new PicMagick GUI release.
+ * Check GitHub for a new Compakta release.
+ * Checks esconer/compakta first; falls back to esconer/picmagick-gui if not found.
  */
 export async function checkAppUpdate(force = false): Promise<AppUpdateStatus> {
   // If download is actively running or ready, keep returning current state
@@ -189,10 +208,21 @@ export async function checkAppUpdate(force = false): Promise<AppUpdateStatus> {
         headers.authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
       }
 
-      const res = await fetch(RELEASE_API, {
+      let res = await fetch(RELEASE_API, {
         headers,
         signal: AbortSignal.timeout(15_000),
       });
+
+      // Fallback check if the new repository hasn't published a release yet
+      if (res.status === 404 && FALLBACK_REPO) {
+        const fallbackRes = await fetch(FALLBACK_RELEASE_API, {
+          headers,
+          signal: AbortSignal.timeout(15_000),
+        });
+        if (fallbackRes.ok) {
+          res = fallbackRes;
+        }
+      }
 
       if (!res.ok) {
         throw new Error(`GitHub release check failed: HTTP ${res.status} ${res.statusText}`);
@@ -218,7 +248,7 @@ export async function checkAppUpdate(force = false): Promise<AppUpdateStatus> {
     state.releaseUrl = typeof data.html_url === "string" ? data.html_url : null;
     state.assetName = picked?.name ?? null;
     state.totalBytes = picked?.size ?? 0;
-    state.isDesktop = Boolean(process.env.PICMAGIK_DESKTOP);
+    state.isDesktop = Boolean(process.env.COMPAKTA_DESKTOP || process.env.PICMAGIK_DESKTOP);
 
     // Check if installer is already downloaded from previous check
     const existingInstaller = findInstallerFile(EXTRACT_DIR);
@@ -234,11 +264,11 @@ export async function checkAppUpdate(force = false): Promise<AppUpdateStatus> {
     if (newer && picked) {
       state.updateAvailable = true;
       state.stage = "available";
-      state.message = `PicMagick GUI v${version} is available.`;
+      state.message = `Compakta v${version} is available.`;
     } else {
       state.updateAvailable = false;
       state.stage = "idle";
-      state.message = `PicMagick GUI is up to date (v${APP_VERSION}).`;
+      state.message = `Compakta is up to date (v${APP_VERSION}).`;
     }
 
     return { ...state };
@@ -274,7 +304,7 @@ export async function downloadAppUpdate(): Promise<void> {
   state.percent = 0;
   state.downloadedBytes = 0;
   state.totalBytes = picked.size;
-  state.message = `Downloading PicMagick GUI v${state.latestVersion}…`;
+  state.message = `Downloading Compakta v${state.latestVersion}…`;
 
   const archivePath = path.join(UPDATE_DIR, picked.name);
 
@@ -329,7 +359,7 @@ export async function downloadAppUpdate(): Promise<void> {
 
       state.installerPath = installer;
       state.stage = "ready";
-      state.message = `PicMagick GUI v${state.latestVersion} is ready to install.`;
+      state.message = `Compakta v${state.latestVersion} is ready to install.`;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       state.stage = "error";
@@ -393,6 +423,6 @@ export async function applyAppUpdate(): Promise<{ ok: boolean; message: string }
 
   return {
     ok: true,
-    message: "Installer launched. PicMagick GUI will now restart.",
+    message: "Installer launched. Compakta will now restart.",
   };
 }

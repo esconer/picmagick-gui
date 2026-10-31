@@ -331,7 +331,7 @@ private total = 0;
             quality: o.qualityLabel,
             heicSpeed: o.policy.heicSpeed,
             outputFormat: o.policy.outputFormat,
-            tool: "picmagick-gui",
+            tool: "compakta",
           },
           this.results,
         );

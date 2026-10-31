@@ -22,7 +22,7 @@ import {
   type OutputFormat,
 } from "./formats.ts";
 import { parseFormatSupport } from "./paths.ts";
-import { readManifest, writeManifest } from "./manifest.ts";
+import { manifestPath, readManifest, writeManifest } from "./manifest.ts";
 import { analyseSync } from "./sync.ts";
 import type { ScannedFile } from "./scan.ts";
 import * as destination from "../src/client/format-logic.ts";
@@ -405,7 +405,7 @@ await check("manifest writes the format and reads old manifests", async () => {
     assert.equal(written.outputFormat, "jxl");
     assert.deepEqual(written.quality, [80]);
     assert.equal(written.heicSpeed, 6);
-    assert.equal((await readManifest(path.join(out, ".picmagic-manifest-run-format-check.json"))).outputFormat, "jxl");
+    assert.equal((await readManifest(manifestPath(out, "run-format-check"))).outputFormat, "jxl");
 
     // A manifest from before this feature has no outputFormat. Reading it must
     // still work; the API/UI treat the missing value as AVIF.

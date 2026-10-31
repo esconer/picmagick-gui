@@ -117,7 +117,7 @@ export async function analyseVideoSync(
         continue;
       }
       if (!e.isFile()) continue;
-      if (e.name.startsWith(".picmagic-manifest-")) continue;
+      if (e.name.startsWith(".picmagic-manifest-") || e.name.startsWith(".compakta-manifest-")) continue;
       if (e.name.includes(".part.")) continue;
 
       const ext = extOf(e.name);

@@ -41,7 +41,10 @@ export type Manifest = {
 };
 
 export function manifestPath(destination: string, id: string): string {
-  return path.join(destination, `.picmagic-manifest-${id}.json`);
+  // Check if a legacy manifest exists first for existing recorded runs
+  const legacy = path.join(destination, `.picmagic-manifest-${id}.json`);
+  if (existsSync(legacy)) return legacy;
+  return path.join(destination, `.compakta-manifest-${id}.json`);
 }
 
 export async function writeManifest(
@@ -79,7 +82,9 @@ export async function listManifests(destination: string): Promise<string[]> {
   const { readdir } = await import("node:fs/promises");
   if (!existsSync(destination)) return [];
   const entries = await readdir(destination);
-  return entries.filter((e) => e.startsWith(".picmagic-manifest-") && e.endsWith(".json"));
+  return entries.filter(
+    (e) => (e.startsWith(".compakta-manifest-") || e.startsWith(".picmagic-manifest-")) && e.endsWith(".json"),
+  );
 }
 
 export type UndoResult = {
@@ -126,6 +131,8 @@ export async function undoManifest(
 
   if (!opts.dryRun) {
     await rm(manifestPath(manifest.destination, manifest.id), { force: true }).catch(() => {});
+    await rm(path.join(manifest.destination, `.compakta-manifest-${manifest.id}.json`), { force: true }).catch(() => {});
+    await rm(path.join(manifest.destination, `.picmagic-manifest-${manifest.id}.json`), { force: true }).catch(() => {});
   }
   return res;
 }
