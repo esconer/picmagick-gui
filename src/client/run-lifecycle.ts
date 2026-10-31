@@ -288,6 +288,9 @@ export function createRunLifecycle(options: RunLifecycleOptions): RunLifecycle {
       const cpuLimitInput = document.getElementById("cpuLimit") as HTMLInputElement | null;
       const overwrite = document.getElementById("overwrite") as HTMLInputElement | null;
       const onlyNew = document.getElementById("onlyNew") as HTMLInputElement | null;
+      const customDest =
+        (document.getElementById("destination") as HTMLInputElement | null)?.value.trim() ||
+        state.videoCustomDestination;
       const response = await api<RunResponse>("run", {
         method: "POST",
         body: {
@@ -296,10 +299,8 @@ export function createRunLifecycle(options: RunLifecycleOptions): RunLifecycle {
           overwrite: Boolean(overwrite?.checked),
           onlyNew: Boolean(runOptions.onlyNew ?? onlyNew?.checked),
           policy: options.policy(),
-          customDestination:
-            state.mediaMode === "video" && state.videoDestMode === "custom"
-              ? ((document.getElementById("destination") as HTMLInputElement | null)?.value.trim() || state.videoCustomDestination)
-              : undefined,
+          customDestination: state.mediaMode === "video" ? (customDest || undefined) : undefined,
+          destination: state.mediaMode === "video" ? (customDest || undefined) : undefined,
         },
       });
       resetRun(response.total);

@@ -24,6 +24,7 @@ type ApiOptions = {
 };
 
 const VIDEO_ROUTED_PATHS = new Set([
+  "config",
   "preview",
   "estimate",
   "sync",

@@ -147,16 +147,20 @@ export function resolveVideoDestination(
   customDest: string,
   policy: VideoPolicy,
 ): string {
-  if (policy.destMode === "merge") {
-    return photoDest;
+  const custom = customDest.trim();
+  if (policy.destMode === "custom") {
+    if (custom) return custom;
+    const suffix = VIDEO_FORMAT_SPECS[policy.outputFormat].destinationSuffix;
+    return `${sourceRoot.replace(/[\\/]+$/, "")}-${suffix}`;
   }
   if (policy.destMode === "subfolder") {
     return path.join(photoDest, "video");
   }
-  const custom = customDest.trim();
-  if (custom) return custom;
-  const suffix = VIDEO_FORMAT_SPECS[policy.outputFormat].destinationSuffix;
-  return `${sourceRoot.replace(/[\\/]+$/, "")}-${suffix}`;
+  const defaultSuffix = `${sourceRoot.replace(/[\\/]+$/, "")}-${VIDEO_FORMAT_SPECS[policy.outputFormat].destinationSuffix}`;
+  if (custom && custom !== defaultSuffix) {
+    return custom;
+  }
+  return photoDest;
 }
 
 export function videoOutputPathFor(

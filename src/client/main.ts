@@ -175,25 +175,35 @@ const budgetBytes = (): number =>
   Math.max(1, Math.round(input("budget").valueAsNumber)) * 1024 ** 3;
 
 const save = async (): Promise<void> => {
+  const currentDest = input("destination").value.trim();
   if (state.mediaMode === "video") {
-    if (state.videoDestMode === "custom") {
-      const val = input("destination").value.trim();
-      if (val) state.videoCustomDestination = val;
+    if (currentDest) {
+      state.videoCustomDestination = currentDest;
     }
-    await api<any>("config", {
-      method: "POST",
-      body: {
-        customDestination:
-          state.videoDestMode === "custom"
-            ? (state.videoCustomDestination || input("destination").value.trim())
-            : state.videoCustomDestination,
-        budgetBytes: budgetBytes(),
-        policy: policy(),
-      },
-    });
+    const chosen = state.videoCustomDestination || currentDest;
+    await Promise.all([
+      api<any>("video/config", {
+        method: "POST",
+        body: {
+          customDestination: chosen,
+          destination: chosen,
+          budgetBytes: budgetBytes(),
+          policy: policy(),
+        },
+      }),
+      api<ConfigResponse>("config", {
+        method: "POST",
+        body: {
+          destination: chosen,
+          budgetBytes: budgetBytes(),
+          policy: policy(),
+        },
+      }),
+    ]);
+    if (state.status && chosen) state.status.destination = chosen;
     return;
   }
-  const destination = input("destination").value.trim();
+  const destination = currentDest;
   await api<ConfigResponse>("config", {
     method: "POST",
     body: {
@@ -221,14 +231,13 @@ const refreshPreview = async (): Promise<void> => {
   state.previewBusy = true;
   try {
     await save();
+    const destVal = input("destination").value.trim() || state.videoCustomDestination;
     const preview = await api<PreviewResponse>("preview", {
       method: "POST",
       body: {
         policy: policy(),
-        customDestination:
-          state.mediaMode === "video" && state.videoDestMode === "custom"
-            ? (state.videoCustomDestination || input("destination").value.trim())
-            : undefined,
+        customDestination: state.mediaMode === "video" ? destVal : undefined,
+        destination: state.mediaMode === "video" ? destVal : undefined,
       },
     });
     if (seq !== previewSeq) return;
@@ -516,6 +525,7 @@ const applyDestination = async (previous: string): Promise<void> => {
   clearDestError();
   try {
     if (state.mediaMode === "video") {
+      state.videoDestMode = "custom";
       state.videoCustomDestination = destination;
       syncVideoDestUi();
     }
@@ -546,6 +556,7 @@ const pickFolder = async (kind: "source" | "destination"): Promise<void> => {
       const previous = input("destination").value;
       input("destination").value = result.path;
       if (state.mediaMode === "video") {
+        state.videoDestMode = "custom";
         state.videoCustomDestination = result.path;
         syncVideoDestUi();
       }
@@ -1711,9 +1722,13 @@ input("destination").addEventListener("keydown", (event) => {
   }
 });
 input("destination").addEventListener("input", () => {
-  if (state.mediaMode === "video" && state.videoDestMode === "custom") {
+  if (state.mediaMode === "video") {
     const val = input("destination").value.trim();
+    state.videoDestMode = "custom";
     state.videoCustomDestination = val;
+    $("btnDestMerge").setAttribute("aria-pressed", "false");
+    $("btnDestSubfolder").setAttribute("aria-pressed", "false");
+    $("btnDestCustom").setAttribute("aria-pressed", "true");
     $("videoDestResolved").textContent = `Writing to separate custom location: ${val || "…"}`;
     schedulePreview();
   }
@@ -1721,8 +1736,10 @@ input("destination").addEventListener("input", () => {
 input("destination").addEventListener("change", () => {
   const previous = destinationBefore || input("destination").value;
   destinationBefore = input("destination").value;
-  if (state.mediaMode === "video" && state.videoDestMode === "custom") {
-    state.videoCustomDestination = input("destination").value.trim();
+  if (state.mediaMode === "video") {
+    const val = input("destination").value.trim();
+    state.videoDestMode = "custom";
+    state.videoCustomDestination = val;
     syncVideoDestUi();
   }
   if (input("destination").value.trim() !== previous.trim()) {

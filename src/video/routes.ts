@@ -214,15 +214,20 @@ export async function handleVideoApi(
   if (subroute === "config" && req.method === "POST") {
     const body = await readBody<{
       customDestination?: string;
+      destination?: string;
       budgetBytes?: number;
       policy?: Partial<VideoPolicy>;
     }>(req);
 
     const nextPolicy = mergeVideoPolicyUpdate(vState.policy, body.policy);
-    const nextCustom =
-      typeof body.customDestination === "string"
-        ? body.customDestination.trim()
-        : vState.customDestination;
+    const rawDest = (body.customDestination || body.destination)?.trim();
+    const nextCustom = rawDest !== undefined && rawDest !== ""
+      ? rawDest
+      : vState.customDestination;
+
+    if (rawDest) {
+      nextPolicy.destMode = "custom";
+    }
 
     const candidateDest = resolveVideoDestination(
       bridge.getSourceRoot(),
@@ -233,7 +238,7 @@ export async function handleVideoApi(
     assertDestinationSafe(bridge.getSourceRoot(), candidateDest);
 
     vState.policy = nextPolicy;
-    if (typeof body.customDestination === "string") {
+    if (rawDest !== undefined && rawDest !== "") {
       vState.customDestination = nextCustom;
     }
     if (typeof body.budgetBytes === "number") {
@@ -256,12 +261,15 @@ export async function handleVideoApi(
     const body = await readBody<{
       policy?: Partial<VideoPolicy>;
       customDestination?: string;
+      destination?: string;
     }>(req);
     if (body.policy) {
       vState.policy = mergeVideoPolicyUpdate(vState.policy, body.policy);
     }
-    if (typeof body.customDestination === "string" && body.customDestination.trim()) {
-      vState.customDestination = body.customDestination.trim();
+    const rawDest = (body.customDestination || body.destination)?.trim();
+    if (rawDest) {
+      vState.customDestination = rawDest;
+      vState.policy.destMode = "custom";
     }
 
     const ratio = vState.ratios[vState.policy.outputFormat];
@@ -335,12 +343,15 @@ export async function handleVideoApi(
     const body = await readBody<{
       policy?: Partial<VideoPolicy>;
       customDestination?: string;
+      destination?: string;
     }>(req);
     if (body.policy) {
       vState.policy = mergeVideoPolicyUpdate(vState.policy, body.policy);
     }
-    if (typeof body.customDestination === "string" && body.customDestination.trim()) {
-      vState.customDestination = body.customDestination.trim();
+    const rawDest = (body.customDestination || body.destination)?.trim();
+    if (rawDest) {
+      vState.customDestination = rawDest;
+      vState.policy.destMode = "custom";
     }
 
     const preview = applyVideoPolicy(
@@ -662,13 +673,16 @@ export async function handleVideoApi(
       onlyNew?: boolean;
       policy?: Partial<VideoPolicy>;
       customDestination?: string;
+      destination?: string;
     }>(req);
 
     if (body.policy) {
       vState.policy = mergeVideoPolicyUpdate(vState.policy, body.policy);
     }
-    if (typeof body.customDestination === "string" && body.customDestination.trim()) {
-      vState.customDestination = body.customDestination.trim();
+    const rawDest = (body.customDestination || body.destination)?.trim();
+    if (rawDest) {
+      vState.customDestination = rawDest;
+      vState.policy.destMode = "custom";
     }
 
     const ff = requireFfmpeg();

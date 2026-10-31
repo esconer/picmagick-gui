@@ -81,6 +81,7 @@ class ApiError extends Error {
   }
 }
 var VIDEO_ROUTED_PATHS = new Set([
+  "config",
   "preview",
   "estimate",
   "sync",
@@ -1553,6 +1554,7 @@ function createRunLifecycle(options) {
       const cpuLimitInput = document.getElementById("cpuLimit");
       const overwrite = document.getElementById("overwrite");
       const onlyNew = document.getElementById("onlyNew");
+      const customDest = document.getElementById("destination")?.value.trim() || state.videoCustomDestination;
       const response = await api("run", {
         method: "POST",
         body: {
@@ -1561,7 +1563,8 @@ function createRunLifecycle(options) {
           overwrite: Boolean(overwrite?.checked),
           onlyNew: Boolean(runOptions.onlyNew ?? onlyNew?.checked),
           policy: options.policy(),
-          customDestination: state.mediaMode === "video" && state.videoDestMode === "custom" ? document.getElementById("destination")?.value.trim() || state.videoCustomDestination : undefined
+          customDestination: state.mediaMode === "video" ? customDest || undefined : undefined,
+          destination: state.mediaMode === "video" ? customDest || undefined : undefined
         }
       });
       resetRun(response.total);
@@ -3164,23 +3167,36 @@ var policy = () => {
 };
 var budgetBytes = () => Math.max(1, Math.round(input("budget").valueAsNumber)) * 1024 ** 3;
 var save = async () => {
+  const currentDest = input("destination").value.trim();
   if (state.mediaMode === "video") {
-    if (state.videoDestMode === "custom") {
-      const val = input("destination").value.trim();
-      if (val)
-        state.videoCustomDestination = val;
+    if (currentDest) {
+      state.videoCustomDestination = currentDest;
     }
-    await api("config", {
-      method: "POST",
-      body: {
-        customDestination: state.videoDestMode === "custom" ? state.videoCustomDestination || input("destination").value.trim() : state.videoCustomDestination,
-        budgetBytes: budgetBytes(),
-        policy: policy()
-      }
-    });
+    const chosen = state.videoCustomDestination || currentDest;
+    await Promise.all([
+      api("video/config", {
+        method: "POST",
+        body: {
+          customDestination: chosen,
+          destination: chosen,
+          budgetBytes: budgetBytes(),
+          policy: policy()
+        }
+      }),
+      api("config", {
+        method: "POST",
+        body: {
+          destination: chosen,
+          budgetBytes: budgetBytes(),
+          policy: policy()
+        }
+      })
+    ]);
+    if (state.status && chosen)
+      state.status.destination = chosen;
     return;
   }
-  const destination = input("destination").value.trim();
+  const destination = currentDest;
   await api("config", {
     method: "POST",
     body: {
@@ -3207,11 +3223,13 @@ var refreshPreview = async () => {
   state.previewBusy = true;
   try {
     await save();
+    const destVal = input("destination").value.trim() || state.videoCustomDestination;
     const preview = await api("preview", {
       method: "POST",
       body: {
         policy: policy(),
-        customDestination: state.mediaMode === "video" && state.videoDestMode === "custom" ? state.videoCustomDestination || input("destination").value.trim() : undefined
+        customDestination: state.mediaMode === "video" ? destVal : undefined,
+        destination: state.mediaMode === "video" ? destVal : undefined
       }
     });
     if (seq !== previewSeq)
@@ -3432,6 +3450,7 @@ var applyDestination = async (previous) => {
   clearDestError();
   try {
     if (state.mediaMode === "video") {
+      state.videoDestMode = "custom";
       state.videoCustomDestination = destination;
       syncVideoDestUi();
     }
@@ -3462,6 +3481,7 @@ var pickFolder = async (kind) => {
       const previous = input("destination").value;
       input("destination").value = result.path;
       if (state.mediaMode === "video") {
+        state.videoDestMode = "custom";
         state.videoCustomDestination = result.path;
         syncVideoDestUi();
       }
@@ -4400,9 +4420,13 @@ input("destination").addEventListener("keydown", (event) => {
   }
 });
 input("destination").addEventListener("input", () => {
-  if (state.mediaMode === "video" && state.videoDestMode === "custom") {
+  if (state.mediaMode === "video") {
     const val = input("destination").value.trim();
+    state.videoDestMode = "custom";
     state.videoCustomDestination = val;
+    $("btnDestMerge").setAttribute("aria-pressed", "false");
+    $("btnDestSubfolder").setAttribute("aria-pressed", "false");
+    $("btnDestCustom").setAttribute("aria-pressed", "true");
     $("videoDestResolved").textContent = `Writing to separate custom location: ${val || "…"}`;
     schedulePreview();
   }
@@ -4410,8 +4434,10 @@ input("destination").addEventListener("input", () => {
 input("destination").addEventListener("change", () => {
   const previous = destinationBefore || input("destination").value;
   destinationBefore = input("destination").value;
-  if (state.mediaMode === "video" && state.videoDestMode === "custom") {
-    state.videoCustomDestination = input("destination").value.trim();
+  if (state.mediaMode === "video") {
+    const val = input("destination").value.trim();
+    state.videoDestMode = "custom";
+    state.videoCustomDestination = val;
     syncVideoDestUi();
   }
   if (input("destination").value.trim() !== previous.trim()) {
