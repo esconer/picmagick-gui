@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.3.0 - 2026-10-31
+
+- Added an isolated, full-featured Video Transcoding Engine powered by FFmpeg:
+  - Supports modern and efficient video codecs: AV1 (default via libsvtav1), HEVC / H.265 (libx265), VP9 (libvpx-vp9), and hardware-accelerated encoding (NVIDIA NVENC, Intel QSV, AMD AMF).
+  - 1-Click Tinkerer Presets: Archival (lossless/near-lossless CRF 22), Balanced (CRF 28), and Space Saver (1080p 30fps Opus CRF 36).
+  - Flexible 3-Mode Destination Layouts: Shadow Merge (mirrors alongside photos), Subfolder (`/video`), and Custom Path.
+  - Video Frame Compare Inspector with side-by-side split comparison, zoom, and frame-accurate seeking.
+  - Automatic FFmpeg discovery, background installer from trusted official builds, and capability probing.
+  - Smart audio transcoding: passes through compressed AAC/Opus, transcodes uncompressed camera PCM to efficient Opus/AAC.
+  - Dedicated video job runner with pause, resume, progress telemetry, cancellation, and safe manifest-based undo.
+- Complete Photos and Videos Mode Isolation:
+  - Strict separation between ImageMagick (photos) and FFmpeg (videos) pipelines.
+  - Photos mode cleanly hides video files, video extensions, and redundant badges; folder rollups and context rail steps count only items belonging to the active mode.
+- Universal Photo Thumbnails and Lightbox Viewer:
+  - Universal thumbnail generation and caching for Apple/Android HEIC, camera RAW formats (DNG, ARW, CR2, NEF, etc.), TIFF, and web formats.
+  - Full-screen distraction-free Lightbox modal image viewer with high-resolution rendering, next/previous buttons, and keyboard navigation (`←`, `→`, `Escape`).
+  - Cross-platform relative path resolution supporting both forward and backslashes in URL queries and buffered payload streaming.
+
 ## 1.2.1 - 2026-10-29
 
 - Added an in-app self-updater that checks GitHub Releases, downloads the lean

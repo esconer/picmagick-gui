@@ -10,6 +10,7 @@ import path from "node:path";
 import { BUNDLED_FFMPEG_DIR, FFMPEG_DIR } from "../appdirs.ts";
 import type { FormatSupport } from "../paths.ts";
 import { IS_LINUX, IS_WINDOWS } from "../platform.ts";
+import { APP_VERSION } from "../version.ts";
 import {
   VIDEO_OUTPUT_FORMATS,
   type VideoOutputFormat,
@@ -289,7 +290,7 @@ export async function installLatestFfmpeg(): Promise<{ ok: boolean; path: string
     const archivePath = path.join(FFMPEG_DIR, path.basename(url));
 
     const res = await fetch(url, {
-      headers: { "user-agent": "picmagick-gui/1.2.1" },
+      headers: { "user-agent": `picmagick-gui/${APP_VERSION}` },
       redirect: "follow",
     });
     if (!res.ok || !res.body) {
