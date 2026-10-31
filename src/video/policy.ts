@@ -100,7 +100,10 @@ export type VideoPreview = {
 
 export function normaliseVideoPolicy(p?: Partial<VideoPolicy>): VideoPolicy {
   const base = { ...DEFAULT_VIDEO_POLICY, ...(p ?? {}) };
-  const extEnabled = { ...DEFAULT_VIDEO_POLICY.extEnabled, ...(base.extEnabled ?? {}) };
+  const extEnabled: Record<string, boolean> = {};
+  for (const ext of VIDEO_EXTS) {
+    extEnabled[ext] = base.extEnabled?.[ext] ?? true;
+  }
 
   const cleanFolders = (v: string[] | undefined) => [
     ...new Set(

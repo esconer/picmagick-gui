@@ -21,6 +21,14 @@ export type OutputFormat =
 
 export type Category = "image" | "raw" | "video" | "other";
 
+export const CONVERT_EXTS = [
+  "jpg", "jpeg", "jpe", "jfif", "heic", "heif", "png", "bmp", "tif", "tiff", "webp", "gif",
+] as const;
+
+export const VIDEO_EXTS = [
+  "mp4", "mov", "m4v", "avi", "mkv", "3gp", "mts", "m2ts", "webm", "mpg", "mpeg", "wmv", "flv", "ogv",
+] as const;
+
 export type FormatSupport = {
   mode: string;
   writable: boolean;
@@ -522,4 +530,28 @@ export type AppUpdateStatus = {
   checkedAt: number | null;
   error: string | null;
   isDesktop: boolean;
+};
+
+export type VideoDestMode = "merge" | "subfolder" | "custom";
+
+export type VideoPolicy = {
+  excludedFolders: string[];
+  includedFolders: string[];
+  excludedFiles: string[];
+  includedFiles: string[];
+  extEnabled: Record<string, boolean>;
+  minSizeBytes: number;
+  copyUndersized: boolean;
+  destMode: VideoDestMode;
+  outputFormat: OutputFormat;
+  container: string;
+  quality: number;
+  speed: number;
+  maxResolution: number;
+  maxFps: number;
+  audioMode: string;
+  tenBit: boolean;
+  filmGrain: number;
+  skipAlreadyEfficient: boolean;
+  customParams: string;
 };

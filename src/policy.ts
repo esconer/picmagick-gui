@@ -113,7 +113,10 @@ export const DEFAULT_RATIO = 0.174;
 
 export function normalisePolicy(p: Partial<Policy> | undefined): Policy {
   const base = { ...DEFAULT_POLICY, ...(p ?? {}) };
-  const extEnabled = { ...DEFAULT_POLICY.extEnabled, ...(base.extEnabled ?? {}) };
+  const extEnabled: Record<string, boolean> = {};
+  for (const ext of CONVERT_EXTS) {
+    extEnabled[ext] = base.extEnabled?.[ext] ?? true;
+  }
   const cleanFolders = (v: string[] | undefined) => [
     ...new Set(
       (v ?? [])

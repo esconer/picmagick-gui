@@ -14,6 +14,7 @@ export type LibraryOptions = {
   onChange: () => void;
   onPreview: () => void;
   onToast: (message: string, kind?: ToastKind) => void;
+  onOpenLightbox?: (rel: string, getVisibleFiles: () => ScannedFile[]) => void;
 };
 
 export type LibraryController = {
@@ -23,6 +24,7 @@ export type LibraryController = {
   selectedBytes: () => number;
   focus: () => void;
   resetSelection: () => void;
+  allFiles: () => ScannedFile[];
 };
 
 const DISPLAYABLE = new Set(["jpg", "jpeg", "png", "gif", "webp", "avif", "bmp"]);
@@ -53,7 +55,7 @@ export function createLibrary(opts: LibraryOptions): LibraryController {
     const list = flatten(state.tree);
     return state.mediaMode === "video"
       ? list.filter((f) => f.category === "video")
-      : list;
+      : list.filter((f) => f.category === "image" || f.category === "raw");
   };
 
   const selected = (): ScannedFile[] => {
@@ -88,9 +90,10 @@ export function createLibrary(opts: LibraryOptions): LibraryController {
   };
 
   const visibleFiles = (files: ScannedFile[], query: string, ancestorMatched: boolean): ScannedFile[] => {
-    const modeFiltered = state.mediaMode === "video"
+    const isVideo = state.mediaMode === "video";
+    const modeFiltered = isVideo
       ? files.filter((file) => file.category === "video")
-      : files;
+      : files.filter((file) => file.category === "image" || file.category === "raw");
     const list = !query || ancestorMatched
       ? modeFiltered
       : modeFiltered.filter((file) => file.rel.toLowerCase().includes(query));
@@ -99,25 +102,39 @@ export function createLibrary(opts: LibraryOptions): LibraryController {
 
   const thumb = (file: ScannedFile): HTMLElement => {
     const node = document.createElement("span");
-    node.className = "tree-thumb";
+    node.className = "tree-thumb clickable";
+    node.tabIndex = 0;
+    node.setAttribute("role", "button");
+    node.setAttribute("aria-label", `Preview ${file.name}`);
+    node.title = `Click to preview ${file.name}`;
+
     const ext = String(file.ext || "?").toUpperCase();
-    if (file.category === "image" && file.size <= 8 * 1024 ** 2 && DISPLAYABLE.has(file.ext.toLowerCase())) {
-      const img = document.createElement("img");
-      img.src = `/api/source-file?rel=${encodeURIComponent(file.rel)}`;
-      img.alt = "";
-      img.loading = "lazy";
-      img.addEventListener("error", () => {
-        img.remove();
-        node.textContent = ext.slice(0, 4);
-        node.classList.add("tree-ext");
-      });
-      node.append(img);
-    } else {
+    const img = document.createElement("img");
+    img.src = `/api/thumb?rel=${encodeURIComponent(file.rel)}`;
+    img.alt = "";
+    img.loading = "lazy";
+    img.addEventListener("error", () => {
+      img.remove();
       node.textContent = ext.slice(0, 4);
       node.classList.add("tree-ext");
       if (file.category === "raw") node.classList.add("raw");
       if (file.category === "video" || file.category === "other") node.classList.add("other");
-    }
+    });
+    node.append(img);
+
+    const onOpen = (event: Event) => {
+      event.stopPropagation();
+      opts.onOpenLightbox?.(file.rel, allFiles);
+    };
+
+    node.addEventListener("click", onOpen);
+    node.addEventListener("keydown", (event: KeyboardEvent) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        onOpen(event);
+      }
+    });
+
     return node;
   };
 
@@ -194,11 +211,16 @@ export function createLibrary(opts: LibraryOptions): LibraryController {
 
     row.append(check, spacer, thumb(file), text, pills);
 
-    if (file.category === "video" || file.category === "other") {
+    if (file.category === "raw") {
       const badge = document.createElement("span");
-      badge.className = "tree-badge" + (file.category === "other" ? " dead" : "");
+      badge.className = "tree-badge raw";
+      badge.textContent = "RAW";
+      row.append(badge);
+    } else if (file.category === "other") {
+      const badge = document.createElement("span");
+      badge.className = "tree-badge dead";
       badge.textContent = file.category;
-      if (file.category === "other") badge.title = "Not an image format; this file is always skipped.";
+      badge.title = "Not an image format; this file is always skipped.";
       row.append(badge);
     }
     return row;
@@ -287,13 +309,15 @@ export function createLibrary(opts: LibraryOptions): LibraryController {
     if (hasKids) name.setAttribute("aria-expanded", isOpen ? "true" : "false");
 
     const isVideoMode = state.mediaMode === "video";
-    const folderCount = isVideoMode ? node.videoCount : node.count;
-    const folderBytes = isVideoMode ? node.videoBytes : node.bytes;
+    const folderCount = isVideoMode ? node.videoCount : node.imageCount + node.rawCount;
+    const folderBytes = isVideoMode ? node.videoBytes : node.imageBytes + node.rawBytes;
+
+    if (folderCount === 0 && !ctx.q) return null;
 
     const count = document.createElement("span");
     count.className = "tree-count";
     count.textContent = folderCount.toLocaleString();
-    count.title = `${folderCount.toLocaleString()} ${isVideoMode ? "videos" : "files"} in this folder and below`;
+    count.title = `${folderCount.toLocaleString()} ${isVideoMode ? "videos" : "photos"} in this folder and below`;
 
     const size = document.createElement("span");
     size.className = "tree-size";
@@ -410,8 +434,15 @@ export function createLibrary(opts: LibraryOptions): LibraryController {
 
     const selectedInfo = ctx.counts.get(state.tree.rel) ?? { total: 0, selected: 0 };
     const scan = state.lastScan;
+    const isVideo = state.mediaMode === "video";
+    const modeCount = isVideo
+      ? (scan?.totals.videoCount ?? 0)
+      : ((scan?.totals.imageCount ?? 0) + (scan?.totals.rawCount ?? 0));
+    const modeBytes = isVideo
+      ? (scan?.totals.videoBytes ?? 0)
+      : ((scan?.totals.imageBytes ?? 0) + (scan?.totals.rawBytes ?? 0));
     $("scanSummary").textContent = scan
-      ? `${scan.totals.count.toLocaleString()} files · ${fmt(scan.totals.bytes)} · ${selectedInfo.selected.toLocaleString()} selected · ${(scan.durationMs / 1000).toFixed(1)}s`
+      ? `${modeCount.toLocaleString()} ${isVideo ? "videos" : "photos"} · ${fmt(modeBytes)} · ${selectedInfo.selected.toLocaleString()} selected · ${(scan.durationMs / 1000).toFixed(1)}s`
       : `${selectedInfo.selected.toLocaleString()} selected`;
 
     clearFilter.classList.toggle("hidden", !filterInput.value);
@@ -542,5 +573,6 @@ export function createLibrary(opts: LibraryOptions): LibraryController {
     selectedBytes,
     focus,
     resetSelection,
+    allFiles,
   };
 }

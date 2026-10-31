@@ -48,6 +48,8 @@ import {
   resetVideoScanState,
   type SharedServerBridge,
 } from "./video/routes.ts";
+import { findFfmpeg } from "./video/ffmpeg.ts";
+import { extractVideoFramePng } from "./video/meta.ts";
 
 // Resolved by startServer(). A source run keeps the project layout; the
 // desktop entrypoint passes the packaged resources and the writable cache.
@@ -205,6 +207,16 @@ const IMAGE_MIME: Record<string, string> = {
 
 /** Ceiling for the in-browser original preview. */
 const MAX_PASSTHROUGH_BYTES = 64 * 1024 * 1024;
+
+const NATIVE_IMAGE_EXTS = new Set([
+  "jpg", "jpeg", "jpe", "jfif", "png", "gif", "bmp", "webp", "avif",
+]);
+
+function cacheKeyFor(file: ScannedFile, prefix: string): string {
+  const hasher = new Bun.CryptoHasher("sha256");
+  hasher.update(`${file.abs}:${file.mtime}:${file.size}`);
+  return `${prefix}_${hasher.digest("hex").slice(0, 16)}.jpg`;
+}
 
 /** Set after Bun.serve() so the shutdown route can stop the listener. */
 let requestShutdown: (() => void) | null = null;
@@ -695,6 +707,164 @@ async function handleApi(pathname: string, req: Request, url: URL): Promise<Resp
         "content-type": IMAGE_MIME[file.ext.toLowerCase()],
         "content-length": String(file.size),
         "cache-control": "no-store",
+      },
+    });
+  }
+
+  // ---- thumbnail generator & cache ----
+  if (route === "thumb" && req.method === "GET") {
+    if (!state.scan) throw new HttpError(404, "No scan.");
+    const rel = url.searchParams.get("rel");
+    const file = state.index.get(rel ?? "");
+    if (!file) throw new HttpError(404, "Not in scan.");
+
+    await ensureDir(previewCacheDir);
+    const thumbName = cacheKeyFor(file, "thumb");
+    const thumbPath = path.join(previewCacheDir, thumbName);
+
+    if (!existsSync(thumbPath)) {
+      if (file.category === "video") {
+        const ffmpeg = findFfmpeg();
+        if (ffmpeg) {
+          const pngPath = thumbPath.replace(/\.jpg$/, ".png");
+          if (!existsSync(pngPath)) {
+            await extractVideoFramePng(ffmpeg.ffmpegPath, file.abs, 1.0, pngPath);
+          }
+          if (existsSync(pngPath)) {
+            return new Response(Bun.file(pngPath).stream(), {
+              headers: {
+                "content-type": "image/png",
+                "cache-control": "public, max-age=86400",
+              },
+            });
+          }
+        }
+        throw new HttpError(404, "No video thumbnail available");
+      }
+
+      // Photos (image or raw)
+      const magick = state.magick ?? findMagick();
+      if (magick) {
+        await new Promise<void>((resolve, reject) => {
+          const child = spawn(magick.path, [
+            `${file.abs}[0]`,
+            "-auto-orient",
+            "-thumbnail", "96x96^",
+            "-gravity", "center",
+            "-extent", "96x96",
+            "-quality", "80",
+            thumbPath,
+          ]);
+          const timer = setTimeout(() => {
+            child.kill();
+            reject(new Error("Thumbnail generation timed out"));
+          }, 8000);
+          child.on("close", (code) => {
+            clearTimeout(timer);
+            if (code === 0) resolve();
+            else reject(new Error(`Thumbnail generation failed with code ${code}`));
+          });
+          child.on("error", (err) => {
+            clearTimeout(timer);
+            reject(err);
+          });
+        });
+      } else if (IMAGE_MIME[file.ext.toLowerCase()]) {
+        return new Response(Bun.file(file.abs).stream(), {
+          headers: {
+            "content-type": IMAGE_MIME[file.ext.toLowerCase()],
+            "cache-control": "public, max-age=86400",
+          },
+        });
+      } else {
+        throw new HttpError(415, `Unsupported image format: .${file.ext}`);
+      }
+    }
+
+    return new Response(Bun.file(thumbPath).stream(), {
+      headers: {
+        "content-type": "image/jpeg",
+        "cache-control": "public, max-age=86400",
+      },
+    });
+  }
+
+  // ---- high-resolution expanded preview for lightbox ----
+  if (route === "view-image" && req.method === "GET") {
+    if (!state.scan) throw new HttpError(404, "No scan.");
+    const rel = url.searchParams.get("rel");
+    const file = state.index.get(rel ?? "");
+    if (!file) throw new HttpError(404, "Not in scan.");
+
+    const ext = file.ext.toLowerCase();
+    // Directly stream browser-native formats if within size limit
+    if (NATIVE_IMAGE_EXTS.has(ext) && file.size <= MAX_PASSTHROUGH_BYTES) {
+      return new Response(Bun.file(file.abs).stream(), {
+        headers: {
+          "content-type": IMAGE_MIME[ext] ?? "image/jpeg",
+          "cache-control": "no-store",
+        },
+      });
+    }
+
+    if (file.category === "video") {
+      const ffmpeg = findFfmpeg();
+      if (ffmpeg) {
+        const framePath = path.join(previewCacheDir, cacheKeyFor(file, "frame").replace(/\.jpg$/, ".png"));
+        if (!existsSync(framePath)) {
+          await ensureDir(previewCacheDir);
+          await extractVideoFramePng(ffmpeg.ffmpegPath, file.abs, 1.0, framePath);
+        }
+        if (existsSync(framePath)) {
+          return new Response(Bun.file(framePath).stream(), {
+            headers: {
+              "content-type": "image/png",
+              "cache-control": "public, max-age=86400",
+            },
+          });
+        }
+      }
+      throw new HttpError(404, "No video preview available");
+    }
+
+    // For HEIC, RAW, TIFF or non-native formats, transcode to a screen-sized cached JPEG
+    await ensureDir(previewCacheDir);
+    const viewName = cacheKeyFor(file, "view");
+    const viewPath = path.join(previewCacheDir, viewName);
+
+    if (!existsSync(viewPath)) {
+      const magick = state.magick ?? findMagick();
+      if (!magick) {
+        throw new HttpError(500, "ImageMagick required to preview this image");
+      }
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn(magick.path, [
+          `${file.abs}[0]`,
+          "-auto-orient",
+          "-resize", "2048x2048>",
+          "-quality", "85",
+          viewPath,
+        ]);
+        const timer = setTimeout(() => {
+          child.kill();
+          reject(new Error("Preview generation timed out"));
+        }, 15000);
+        child.on("close", (code) => {
+          clearTimeout(timer);
+          if (code === 0) resolve();
+          else reject(new Error(`Preview generation failed with code ${code}`));
+        });
+        child.on("error", (err) => {
+          clearTimeout(timer);
+          reject(err);
+        });
+      });
+    }
+
+    return new Response(Bun.file(viewPath).stream(), {
+      headers: {
+        "content-type": "image/jpeg",
+        "cache-control": "public, max-age=86400",
       },
     });
   }

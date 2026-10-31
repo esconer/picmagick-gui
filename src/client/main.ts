@@ -27,28 +27,32 @@ import {
 import { nextDestinationOnFormatChange } from "./format-logic";
 import { createFormatUi, type FormatUi } from "./format-ui";
 import { createLibrary, type LibraryController } from "./library";
+import { createLightbox, type LightboxController } from "./lightbox";
 import { createPlan, type PlanController } from "./plan";
 import { createRunLifecycle, type RunLifecycle } from "./run-lifecycle";
 import { initSplitPanes } from "./split-panes";
 import { initMicrointeractions } from "./microinteractions";
 import { state } from "./state";
-import type {
-  AppUpdateStatus,
-  CompareResponse,
-  Estimate,
-  HealthReport,
-  InstallProgress,
-  JobSnapshot,
-  ManifestSummary,
-  OutputFormat,
-  Policy,
-  PreviewResponse,
-  ScannedFile,
-  ScanResult,
-  Status,
-  UndoResult,
-  UpdateStatus,
-  VerifyResponse,
+import {
+  CONVERT_EXTS,
+  VIDEO_EXTS,
+  type AppUpdateStatus,
+  type CompareResponse,
+  type Estimate,
+  type HealthReport,
+  type InstallProgress,
+  type JobSnapshot,
+  type ManifestSummary,
+  type OutputFormat,
+  type Policy,
+  type PreviewResponse,
+  type ScannedFile,
+  type ScanResult,
+  type Status,
+  type UndoResult,
+  type UpdateStatus,
+  type VerifyResponse,
+  type VideoPolicy,
 } from "./types";
 import { createAuditView, type AuditViewController } from "./views/audit";
 import { createCompareView, type CompareViewController } from "./views/compare";
@@ -98,6 +102,7 @@ let compareView: CompareViewController;
 let runsView: RunsViewController;
 let healthView: HealthViewController;
 let auditView: AuditViewController;
+let lightbox: LightboxController;
 
 let previewTimer: ReturnType<typeof setTimeout> | null = null;
 let extEnabled: Record<string, boolean> = {};
@@ -127,49 +132,46 @@ const formatError = (error: unknown): string =>
 // Policy + config
 // --------------------------------------------------------------------------
 
-const policy = (): Policy => {
-  if (state.mediaMode === "video") {
-    return {
-      excludedFolders: [...state.excluded],
-      includedFolders: [...state.included],
-      excludedFiles: [...state.excludedFiles],
-      includedFiles: [...state.includedFiles],
-      extEnabled: { ...extEnabled },
-      minSizeBytes: Math.round(input("minsize").valueAsNumber * 1024 * 1024),
-      copyUndersized: input("copyUndersized").checked,
-      includeRaw: false,
-      outputFormat: state.currentFormat,
-      qualities: [input("quality").valueAsNumber],
-      flattenGif: false,
-      heicSpeed: input("heicSpeed").valueAsNumber,
-      destMode: state.videoDestMode,
-      container: input("videoContainer").value,
-      quality: input("quality").valueAsNumber,
-      speed: input("heicSpeed").valueAsNumber,
-      maxResolution: Number(input("videoMaxRes").value) || 0,
-      maxFps: Number(input("videoMaxFps").value) || 0,
-      audioMode: input("videoAudioMode").value,
-      tenBit: input("videoTenBit").checked,
-      filmGrain: input("videoFilmGrain").valueAsNumber,
-      skipAlreadyEfficient: input("videoSkipEfficient").checked,
-      customParams: input("videoCustomParams").value.trim(),
-    } as unknown as Policy;
-  }
-  return {
-    excludedFolders: [...state.excluded],
-    includedFolders: [...state.included],
-    excludedFiles: [...state.excludedFiles],
-    includedFiles: [...state.includedFiles],
-    extEnabled: { ...extEnabled },
-    minSizeBytes: Math.round(input("minsize").valueAsNumber * 1024 * 1024),
-    copyUndersized: input("copyUndersized").checked,
-    includeRaw: input("includeRaw").checked,
-    outputFormat: state.currentFormat,
-    qualities: [input("quality").valueAsNumber],
-    flattenGif: input("flattenGif").checked,
-    heicSpeed: input("heicSpeed").valueAsNumber,
-  };
-};
+const videoPolicy = (): VideoPolicy => ({
+  excludedFolders: [...state.excluded],
+  includedFolders: [...state.included],
+  excludedFiles: [...state.excludedFiles],
+  includedFiles: [...state.includedFiles],
+  extEnabled: Object.fromEntries(
+    VIDEO_EXTS.map((ext) => [ext, extEnabled[ext] ?? true])
+  ),
+  minSizeBytes: Math.round(input("minsize").valueAsNumber * 1024 * 1024),
+  copyUndersized: input("copyUndersized").checked,
+  destMode: state.videoDestMode,
+  outputFormat: state.currentFormat,
+  container: input("videoContainer").value,
+  quality: input("quality").valueAsNumber,
+  speed: input("heicSpeed").valueAsNumber,
+  maxResolution: Number(input("videoMaxRes").value) || 0,
+  maxFps: Number(input("videoMaxFps").value) || 0,
+  audioMode: input("videoAudioMode").value,
+  tenBit: input("videoTenBit").checked,
+  filmGrain: input("videoFilmGrain").valueAsNumber,
+  skipAlreadyEfficient: input("videoSkipEfficient").checked,
+  customParams: input("videoCustomParams").value.trim(),
+});
+
+const policy = (): Policy => ({
+  excludedFolders: [...state.excluded],
+  includedFolders: [...state.included],
+  excludedFiles: [...state.excludedFiles],
+  includedFiles: [...state.includedFiles],
+  extEnabled: Object.fromEntries(
+    CONVERT_EXTS.map((ext) => [ext, extEnabled[ext] ?? true])
+  ),
+  minSizeBytes: Math.round(input("minsize").valueAsNumber * 1024 * 1024),
+  copyUndersized: input("copyUndersized").checked,
+  includeRaw: input("includeRaw").checked,
+  outputFormat: state.currentFormat,
+  qualities: [input("quality").valueAsNumber],
+  flattenGif: input("flattenGif").checked,
+  heicSpeed: input("heicSpeed").valueAsNumber,
+});
 
 const budgetBytes = (): number =>
   Math.max(1, Math.round(input("budget").valueAsNumber)) * 1024 ** 3;
@@ -181,25 +183,15 @@ const save = async (): Promise<void> => {
       state.videoCustomDestination = currentDest;
     }
     const chosen = state.videoCustomDestination || currentDest;
-    await Promise.all([
-      api<any>("video/config", {
-        method: "POST",
-        body: {
-          customDestination: chosen,
-          destination: chosen,
-          budgetBytes: budgetBytes(),
-          policy: policy(),
-        },
-      }),
-      api<ConfigResponse>("config", {
-        method: "POST",
-        body: {
-          destination: chosen,
-          budgetBytes: budgetBytes(),
-          policy: policy(),
-        },
-      }),
-    ]);
+    await api<any>("video/config", {
+      method: "POST",
+      body: {
+        customDestination: chosen,
+        destination: chosen,
+        budgetBytes: budgetBytes(),
+        policy: videoPolicy(),
+      },
+    });
     if (state.status && chosen) state.status.destination = chosen;
     return;
   }
@@ -327,12 +319,16 @@ const selectedSummary = (): { files: ScannedFile[]; bytes: number } => {
 
 const updateRail = (): void => {
   const selected = selectedSummary();
-  const total = state.lastScan?.totals.count ?? 0;
+  const isVideo = state.mediaMode === "video";
+  const scanTotals = state.lastScan?.totals;
+  const total = isVideo
+    ? (scanTotals?.videoCount ?? 0)
+    : ((scanTotals?.imageCount ?? 0) + (scanTotals?.rawCount ?? 0));
   const p = state.preview;
   const spec = state.formatSpecs[state.currentFormat];
 
   $("stepSourceMeta").textContent = state.tree
-    ? `${total.toLocaleString()} files`
+    ? `${total.toLocaleString()} ${isVideo ? "videos" : "photos"}`
     : scanning
       ? "Scanning…"
       : "No folder";
@@ -778,14 +774,16 @@ const installFfmpeg = async (): Promise<void> => {
 const renderExtToggles = (): void => {
   const host = $("extToggles");
   host.innerHTML = "";
-  for (const [ext, enabled] of Object.entries(extEnabled)) {
+  const allowed = state.mediaMode === "video" ? VIDEO_EXTS : CONVERT_EXTS;
+  for (const ext of allowed) {
+    const enabled = extEnabled[ext] ?? true;
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = "ext-chip" + (enabled ? " on" : "");
     chip.textContent = `.${ext}`;
     chip.title = `${enabled ? "Include" : "Skip"} .${ext} files`;
     chip.addEventListener("click", () => {
-      extEnabled[ext] = !extEnabled[ext];
+      extEnabled[ext] = !enabled;
       chip.classList.toggle("on", extEnabled[ext]);
       chip.title = `${extEnabled[ext] ? "Include" : "Skip"} .${ext} files`;
       schedulePreview();
@@ -1659,7 +1657,10 @@ library = createLibrary({
   onChange: () => updateChrome(),
   onPreview: () => schedulePreview(),
   onToast: (message, kind) => toast(message, kind),
+  onOpenLightbox: (rel, getFiles) => lightbox.open(rel, getFiles),
 });
+
+lightbox = createLightbox(() => library.allFiles());
 
 plan = createPlan({
   onStart: () => void runLifecycle.start(),
@@ -1889,6 +1890,10 @@ document.addEventListener("click", (event) => {
 
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
+    if (lightbox?.isOpen()) {
+      lightbox.close();
+      return;
+    }
     if ($<HTMLDialogElement>("modal").open) {
       if (confirmResolve) settleConfirm(false);
       else {

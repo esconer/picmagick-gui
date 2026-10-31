@@ -654,7 +654,7 @@ function createLibrary(opts) {
     if (!state.tree)
       return [];
     const list = flatten(state.tree);
-    return state.mediaMode === "video" ? list.filter((f) => f.category === "video") : list;
+    return state.mediaMode === "video" ? list.filter((f) => f.category === "video") : list.filter((f) => f.category === "image" || f.category === "raw");
   };
   const selected = () => {
     if (!state.tree)
@@ -688,33 +688,44 @@ function createLibrary(opts) {
     return node.children.some((child) => nodeMatches(child, query));
   };
   const visibleFiles = (files, query, ancestorMatched) => {
-    const modeFiltered = state.mediaMode === "video" ? files.filter((file) => file.category === "video") : files;
+    const isVideo = state.mediaMode === "video";
+    const modeFiltered = isVideo ? files.filter((file) => file.category === "video") : files.filter((file) => file.category === "image" || file.category === "raw");
     const list = !query || ancestorMatched ? modeFiltered : modeFiltered.filter((file) => file.rel.toLowerCase().includes(query));
     return [...list].sort(byName);
   };
   const thumb = (file) => {
     const node = document.createElement("span");
-    node.className = "tree-thumb";
+    node.className = "tree-thumb clickable";
+    node.tabIndex = 0;
+    node.setAttribute("role", "button");
+    node.setAttribute("aria-label", `Preview ${file.name}`);
+    node.title = `Click to preview ${file.name}`;
     const ext = String(file.ext || "?").toUpperCase();
-    if (file.category === "image" && file.size <= 8 * 1024 ** 2 && DISPLAYABLE.has(file.ext.toLowerCase())) {
-      const img = document.createElement("img");
-      img.src = `/api/source-file?rel=${encodeURIComponent(file.rel)}`;
-      img.alt = "";
-      img.loading = "lazy";
-      img.addEventListener("error", () => {
-        img.remove();
-        node.textContent = ext.slice(0, 4);
-        node.classList.add("tree-ext");
-      });
-      node.append(img);
-    } else {
+    const img = document.createElement("img");
+    img.src = `/api/thumb?rel=${encodeURIComponent(file.rel)}`;
+    img.alt = "";
+    img.loading = "lazy";
+    img.addEventListener("error", () => {
+      img.remove();
       node.textContent = ext.slice(0, 4);
       node.classList.add("tree-ext");
       if (file.category === "raw")
         node.classList.add("raw");
       if (file.category === "video" || file.category === "other")
         node.classList.add("other");
-    }
+    });
+    node.append(img);
+    const onOpen = (event) => {
+      event.stopPropagation();
+      opts.onOpenLightbox?.(file.rel, allFiles);
+    };
+    node.addEventListener("click", onOpen);
+    node.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        onOpen(event);
+      }
+    });
     return node;
   };
   const fileRow = (file, depth, ctx) => {
@@ -780,12 +791,16 @@ function createLibrary(opts) {
     });
     pills.append(keep, skip);
     row.append(check, spacer, thumb(file), text, pills);
-    if (file.category === "video" || file.category === "other") {
+    if (file.category === "raw") {
       const badge = document.createElement("span");
-      badge.className = "tree-badge" + (file.category === "other" ? " dead" : "");
+      badge.className = "tree-badge raw";
+      badge.textContent = "RAW";
+      row.append(badge);
+    } else if (file.category === "other") {
+      const badge = document.createElement("span");
+      badge.className = "tree-badge dead";
       badge.textContent = file.category;
-      if (file.category === "other")
-        badge.title = "Not an image format; this file is always skipped.";
+      badge.title = "Not an image format; this file is always skipped.";
       row.append(badge);
     }
     return row;
@@ -853,12 +868,14 @@ function createLibrary(opts) {
     if (hasKids)
       name.setAttribute("aria-expanded", isOpen ? "true" : "false");
     const isVideoMode = state.mediaMode === "video";
-    const folderCount = isVideoMode ? node.videoCount : node.count;
-    const folderBytes = isVideoMode ? node.videoBytes : node.bytes;
+    const folderCount = isVideoMode ? node.videoCount : node.imageCount + node.rawCount;
+    const folderBytes = isVideoMode ? node.videoBytes : node.imageBytes + node.rawBytes;
+    if (folderCount === 0 && !ctx.q)
+      return null;
     const count = document.createElement("span");
     count.className = "tree-count";
     count.textContent = folderCount.toLocaleString();
-    count.title = `${folderCount.toLocaleString()} ${isVideoMode ? "videos" : "files"} in this folder and below`;
+    count.title = `${folderCount.toLocaleString()} ${isVideoMode ? "videos" : "photos"} in this folder and below`;
     const size = document.createElement("span");
     size.className = "tree-size";
     size.textContent = fmt(folderBytes);
@@ -960,7 +977,10 @@ function createLibrary(opts) {
     }
     const selectedInfo = ctx.counts.get(state.tree.rel) ?? { total: 0, selected: 0 };
     const scan = state.lastScan;
-    $("scanSummary").textContent = scan ? `${scan.totals.count.toLocaleString()} files · ${fmt(scan.totals.bytes)} · ${selectedInfo.selected.toLocaleString()} selected · ${(scan.durationMs / 1000).toFixed(1)}s` : `${selectedInfo.selected.toLocaleString()} selected`;
+    const isVideo = state.mediaMode === "video";
+    const modeCount = isVideo ? scan?.totals.videoCount ?? 0 : (scan?.totals.imageCount ?? 0) + (scan?.totals.rawCount ?? 0);
+    const modeBytes = isVideo ? scan?.totals.videoBytes ?? 0 : (scan?.totals.imageBytes ?? 0) + (scan?.totals.rawBytes ?? 0);
+    $("scanSummary").textContent = scan ? `${modeCount.toLocaleString()} ${isVideo ? "videos" : "photos"} · ${fmt(modeBytes)} · ${selectedInfo.selected.toLocaleString()} selected · ${(scan.durationMs / 1000).toFixed(1)}s` : `${selectedInfo.selected.toLocaleString()} selected`;
     clearFilter.classList.toggle("hidden", !filterInput.value);
     if (!ctx.q) {
       $("treeFilterInfo").classList.add("hidden");
@@ -1078,7 +1098,106 @@ function createLibrary(opts) {
     selected,
     selectedBytes,
     focus,
-    resetSelection
+    resetSelection,
+    allFiles
+  };
+}
+
+// src/client/lightbox.ts
+function createLightbox(getFiles) {
+  const overlay = $("lightbox");
+  const titleEl = $("lightboxTitle");
+  const counterEl = $("lightboxCounter");
+  const infoEl = $("lightboxInfo");
+  const closeBtn = $("lightboxClose");
+  const prevBtn = $("lightboxPrev");
+  const nextBtn = $("lightboxNext");
+  const imgEl = $("lightboxImg");
+  const spinnerEl = $("lightboxSpinner");
+  let currentFiles = [];
+  let currentIndex = -1;
+  const update = () => {
+    if (currentIndex < 0 || currentIndex >= currentFiles.length)
+      return;
+    const file = currentFiles[currentIndex];
+    titleEl.textContent = file.name;
+    counterEl.textContent = `${currentIndex + 1} of ${currentFiles.length}`;
+    infoEl.textContent = `${fmt(file.size)} · ${file.ext.toUpperCase()}`;
+    prevBtn.disabled = currentFiles.length <= 1;
+    nextBtn.disabled = currentFiles.length <= 1;
+    spinnerEl.classList.remove("hidden");
+    imgEl.classList.add("loading");
+    const fullSrc = `/api/view-image?rel=${encodeURIComponent(file.rel)}`;
+    imgEl.src = fullSrc;
+    imgEl.alt = file.name;
+  };
+  imgEl.addEventListener("load", () => {
+    spinnerEl.classList.add("hidden");
+    imgEl.classList.remove("loading");
+  });
+  imgEl.addEventListener("error", () => {
+    spinnerEl.classList.add("hidden");
+    imgEl.classList.remove("loading");
+  });
+  const next = () => {
+    if (currentFiles.length <= 1)
+      return;
+    currentIndex = (currentIndex + 1) % currentFiles.length;
+    update();
+  };
+  const prev = () => {
+    if (currentFiles.length <= 1)
+      return;
+    currentIndex = (currentIndex - 1 + currentFiles.length) % currentFiles.length;
+    update();
+  };
+  const close = () => {
+    overlay.classList.add("hidden");
+    imgEl.src = "";
+    currentIndex = -1;
+  };
+  const open = (rel, filesProvider) => {
+    const list = filesProvider ? filesProvider() : getFiles();
+    currentFiles = list;
+    if (currentFiles.length === 0)
+      return;
+    const idx = currentFiles.findIndex((f) => f.rel === rel);
+    currentIndex = idx >= 0 ? idx : 0;
+    overlay.classList.remove("hidden");
+    update();
+  };
+  closeBtn.addEventListener("click", close);
+  nextBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    next();
+  });
+  prevBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    prev();
+  });
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay || e.target.classList.contains("lightbox-stage")) {
+      close();
+    }
+  });
+  document.addEventListener("keydown", (e) => {
+    if (overlay.classList.contains("hidden"))
+      return;
+    if (e.key === "Escape") {
+      e.preventDefault();
+      close();
+    } else if (e.key === "ArrowRight") {
+      e.preventDefault();
+      next();
+    } else if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      prev();
+    }
+  });
+  return {
+    open,
+    close,
+    isOpen: () => !overlay.classList.contains("hidden")
   };
 }
 
@@ -1869,6 +1988,38 @@ function initMicrointeractions() {
     });
   }
 }
+
+// src/client/types.ts
+var CONVERT_EXTS = [
+  "jpg",
+  "jpeg",
+  "jpe",
+  "jfif",
+  "heic",
+  "heif",
+  "png",
+  "bmp",
+  "tif",
+  "tiff",
+  "webp",
+  "gif"
+];
+var VIDEO_EXTS = [
+  "mp4",
+  "mov",
+  "m4v",
+  "avi",
+  "mkv",
+  "3gp",
+  "mts",
+  "m2ts",
+  "webm",
+  "mpg",
+  "mpeg",
+  "wmv",
+  "flv",
+  "ogv"
+];
 
 // src/client/views/audit.ts
 var loading = (label) => `<div class="empty-state"><span class="spinner"></span><p class="empty-title">${escapeHtml(label)}</p><p class="empty-note">This runs locally; nothing leaves your machine.</p></div>`;
@@ -3099,6 +3250,7 @@ var compareView;
 var runsView;
 var healthView;
 var auditView;
+var lightbox;
 var previewTimer = null;
 var extEnabled = {};
 var scanning = false;
@@ -3122,49 +3274,41 @@ var platformName = (platform) => {
   return platform || "Desktop";
 };
 var formatError = (error) => error instanceof Error ? error.message : String(error);
-var policy = () => {
-  if (state.mediaMode === "video") {
-    return {
-      excludedFolders: [...state.excluded],
-      includedFolders: [...state.included],
-      excludedFiles: [...state.excludedFiles],
-      includedFiles: [...state.includedFiles],
-      extEnabled: { ...extEnabled },
-      minSizeBytes: Math.round(input("minsize").valueAsNumber * 1024 * 1024),
-      copyUndersized: input("copyUndersized").checked,
-      includeRaw: false,
-      outputFormat: state.currentFormat,
-      qualities: [input("quality").valueAsNumber],
-      flattenGif: false,
-      heicSpeed: input("heicSpeed").valueAsNumber,
-      destMode: state.videoDestMode,
-      container: input("videoContainer").value,
-      quality: input("quality").valueAsNumber,
-      speed: input("heicSpeed").valueAsNumber,
-      maxResolution: Number(input("videoMaxRes").value) || 0,
-      maxFps: Number(input("videoMaxFps").value) || 0,
-      audioMode: input("videoAudioMode").value,
-      tenBit: input("videoTenBit").checked,
-      filmGrain: input("videoFilmGrain").valueAsNumber,
-      skipAlreadyEfficient: input("videoSkipEfficient").checked,
-      customParams: input("videoCustomParams").value.trim()
-    };
-  }
-  return {
-    excludedFolders: [...state.excluded],
-    includedFolders: [...state.included],
-    excludedFiles: [...state.excludedFiles],
-    includedFiles: [...state.includedFiles],
-    extEnabled: { ...extEnabled },
-    minSizeBytes: Math.round(input("minsize").valueAsNumber * 1024 * 1024),
-    copyUndersized: input("copyUndersized").checked,
-    includeRaw: input("includeRaw").checked,
-    outputFormat: state.currentFormat,
-    qualities: [input("quality").valueAsNumber],
-    flattenGif: input("flattenGif").checked,
-    heicSpeed: input("heicSpeed").valueAsNumber
-  };
-};
+var videoPolicy = () => ({
+  excludedFolders: [...state.excluded],
+  includedFolders: [...state.included],
+  excludedFiles: [...state.excludedFiles],
+  includedFiles: [...state.includedFiles],
+  extEnabled: Object.fromEntries(VIDEO_EXTS.map((ext) => [ext, extEnabled[ext] ?? true])),
+  minSizeBytes: Math.round(input("minsize").valueAsNumber * 1024 * 1024),
+  copyUndersized: input("copyUndersized").checked,
+  destMode: state.videoDestMode,
+  outputFormat: state.currentFormat,
+  container: input("videoContainer").value,
+  quality: input("quality").valueAsNumber,
+  speed: input("heicSpeed").valueAsNumber,
+  maxResolution: Number(input("videoMaxRes").value) || 0,
+  maxFps: Number(input("videoMaxFps").value) || 0,
+  audioMode: input("videoAudioMode").value,
+  tenBit: input("videoTenBit").checked,
+  filmGrain: input("videoFilmGrain").valueAsNumber,
+  skipAlreadyEfficient: input("videoSkipEfficient").checked,
+  customParams: input("videoCustomParams").value.trim()
+});
+var policy = () => ({
+  excludedFolders: [...state.excluded],
+  includedFolders: [...state.included],
+  excludedFiles: [...state.excludedFiles],
+  includedFiles: [...state.includedFiles],
+  extEnabled: Object.fromEntries(CONVERT_EXTS.map((ext) => [ext, extEnabled[ext] ?? true])),
+  minSizeBytes: Math.round(input("minsize").valueAsNumber * 1024 * 1024),
+  copyUndersized: input("copyUndersized").checked,
+  includeRaw: input("includeRaw").checked,
+  outputFormat: state.currentFormat,
+  qualities: [input("quality").valueAsNumber],
+  flattenGif: input("flattenGif").checked,
+  heicSpeed: input("heicSpeed").valueAsNumber
+});
 var budgetBytes = () => Math.max(1, Math.round(input("budget").valueAsNumber)) * 1024 ** 3;
 var save = async () => {
   const currentDest = input("destination").value.trim();
@@ -3173,25 +3317,15 @@ var save = async () => {
       state.videoCustomDestination = currentDest;
     }
     const chosen = state.videoCustomDestination || currentDest;
-    await Promise.all([
-      api("video/config", {
-        method: "POST",
-        body: {
-          customDestination: chosen,
-          destination: chosen,
-          budgetBytes: budgetBytes(),
-          policy: policy()
-        }
-      }),
-      api("config", {
-        method: "POST",
-        body: {
-          destination: chosen,
-          budgetBytes: budgetBytes(),
-          policy: policy()
-        }
-      })
-    ]);
+    await api("video/config", {
+      method: "POST",
+      body: {
+        customDestination: chosen,
+        destination: chosen,
+        budgetBytes: budgetBytes(),
+        policy: videoPolicy()
+      }
+    });
     if (state.status && chosen)
       state.status.destination = chosen;
     return;
@@ -3299,10 +3433,12 @@ var selectedSummary = () => {
 };
 var updateRail = () => {
   const selected = selectedSummary();
-  const total = state.lastScan?.totals.count ?? 0;
+  const isVideo = state.mediaMode === "video";
+  const scanTotals = state.lastScan?.totals;
+  const total = isVideo ? scanTotals?.videoCount ?? 0 : (scanTotals?.imageCount ?? 0) + (scanTotals?.rawCount ?? 0);
   const p = state.preview;
   const spec = state.formatSpecs[state.currentFormat];
-  $("stepSourceMeta").textContent = state.tree ? `${total.toLocaleString()} files` : scanning ? "Scanning…" : "No folder";
+  $("stepSourceMeta").textContent = state.tree ? `${total.toLocaleString()} ${isVideo ? "videos" : "photos"}` : scanning ? "Scanning…" : "No folder";
   $("stepSelectMeta").textContent = state.tree ? `${selected.files.length.toLocaleString()} of ${total.toLocaleString()}` : "None";
   $("stepOutputMeta").textContent = spec ? `${spec.shortLabel} ${$("qualityOut").textContent}` : "—";
   $("stepReviewMeta").textContent = p ? p.budget.fits ? fmt(p.estOutputBytes) : "Over budget" : state.tree ? "Waiting" : "Waiting";
@@ -3669,14 +3805,16 @@ var installFfmpeg = async () => {
 var renderExtToggles = () => {
   const host = $("extToggles");
   host.innerHTML = "";
-  for (const [ext, enabled] of Object.entries(extEnabled)) {
+  const allowed = state.mediaMode === "video" ? VIDEO_EXTS : CONVERT_EXTS;
+  for (const ext of allowed) {
+    const enabled = extEnabled[ext] ?? true;
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = "ext-chip" + (enabled ? " on" : "");
     chip.textContent = `.${ext}`;
     chip.title = `${enabled ? "Include" : "Skip"} .${ext} files`;
     chip.addEventListener("click", () => {
-      extEnabled[ext] = !extEnabled[ext];
+      extEnabled[ext] = !enabled;
       chip.classList.toggle("on", extEnabled[ext]);
       chip.title = `${extEnabled[ext] ? "Include" : "Skip"} .${ext} files`;
       schedulePreview();
@@ -4358,8 +4496,10 @@ auditView = createAuditView(actions);
 library = createLibrary({
   onChange: () => updateChrome(),
   onPreview: () => schedulePreview(),
-  onToast: (message, kind) => toast(message, kind)
+  onToast: (message, kind) => toast(message, kind),
+  onOpenLightbox: (rel, getFiles) => lightbox.open(rel, getFiles)
 });
+lightbox = createLightbox(() => library.allFiles());
 plan = createPlan({
   onStart: () => void runLifecycle.start(),
   onEstimate: () => void runEstimate(),
@@ -4572,6 +4712,10 @@ document.addEventListener("click", (event) => {
 });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
+    if (lightbox?.isOpen()) {
+      lightbox.close();
+      return;
+    }
     if ($("modal").open) {
       if (confirmResolve)
         settleConfirm(false);
